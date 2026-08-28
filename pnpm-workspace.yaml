@@ -1,6 +1,10 @@
 packages:
   - "."
 
+allowBuilds:
+  "@google/genai": false
+  protobufjs: false
+
 overrides:
   "@earendil-works/pi-agent-core": "0.84.2"
   "@earendil-works/pi-ai": "0.84.2"
