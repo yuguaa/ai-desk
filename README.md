@@ -42,7 +42,7 @@ pnpm desktop:build
 - macOS Apple Silicon（DMG）
 - macOS Intel（DMG）
 - Windows x64（安装程序）
-- Linux x64（AppImage、DEB 等 Tauri 默认产物）
+- Linux x64（DEB、RPM）
 
 发布前需要同步修改以下三个版本号，并确保完全一致：
 

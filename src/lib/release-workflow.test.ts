@@ -26,4 +26,9 @@ describe("release workflow", () => {
     expect(buildSidecarIndex).toBeGreaterThan(setupBunIndex);
     expect(cargoTestIndex).toBeGreaterThan(buildSidecarIndex);
   });
+
+  it("Linux 只打包稳定的 DEB 和 RPM 产物", () => {
+    expect(workflow).toContain('args: "--bundles deb,rpm"');
+    expect(workflow).toContain("args: ${{ matrix.args }}");
+  });
 });
