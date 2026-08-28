@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="body" x1="252" y1="272" x2="704" y2="792" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B9B5FF"/>
+      <stop offset="0.52" stop-color="#6674F6"/>
+      <stop offset="1" stop-color="#3944C8"/>
+    </linearGradient>
+    <linearGradient id="top" x1="222" y1="278" x2="754" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EEF2FF"/>
+      <stop offset="1" stop-color="#9BA8FF"/>
+    </linearGradient>
+    <clipPath id="pi-shape">
+      <path d="M216 278h592l-38 154h-92l-38 342H478l38-342H400l-38 342H200l38-342h-60l38-154Z"/>
+    </clipPath>
+  </defs>
+
+  <rect x="56" y="56" width="912" height="912" rx="228" fill="#181819"/>
+
+  <g clip-path="url(#pi-shape)">
+    <rect x="178" y="278" width="630" height="496" fill="url(#body)"/>
+    <path d="M178 278h630l-38 154H238l-60-154Z" fill="url(#top)"/>
+    <path d="m238 432 162-154-38 496H200l38-342Z" fill="#505DDC"/>
+    <path d="m516 432 162-154-38 496H478l38-342Z" fill="#3D47C4"/>
+    <path d="m678 432 92-154-38 154-38 342h-54l38-342Z" fill="#F0A15B"/>
+  </g>
+</svg>

@@ -1,0 +1,35 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+import SettingsPage from "@/pages/SettingsPage";
+import { DEFAULT_APP_SETTINGS } from "@/lib/app-settings";
+
+describe("SettingsPage", () => {
+  it("renders appearance controls, mascot controls, and every mascot option", () => {
+    const html = renderToStaticMarkup(<SettingsPage settings={DEFAULT_APP_SETTINGS} isTauri onBack={vi.fn()} onUpdate={vi.fn()} onReset={vi.fn()} />);
+
+    expect(html).toContain("应用设置");
+    expect(html).toContain("跟随系统");
+    expect(html).toContain("深色");
+    expect(html).toContain("浅色");
+    expect(html).toContain("主题颜色");
+    expect(html).toContain("自定义");
+    expect(html).toContain("界面字体");
+    expect(html).toContain("字体大小");
+    expect(html).toContain("容器内边距");
+    expect(html).toContain("统一圆角");
+    expect(html).toContain("背景透明度");
+    expect(html).toContain("显示看板娘");
+    expect(html).toContain("工程师");
+    expect(html).toContain("领航员");
+    expect((html.match(/data-slot="switch"/g) ?? []).length).toBe(2);
+    expect((html.match(/data-slot="input-number"/g) ?? []).length).toBe(4);
+    expect(html).toMatch(/aria-label="容器内边距"[^>]*min="8"[^>]*max="20"[^>]*step="1"/);
+    expect((html.match(/data-slot="select-trigger"/g) ?? []).length).toBe(1);
+    expect((html.match(/data-slot="toggle-group"/g) ?? []).length).toBe(3);
+    expect((html.match(/data-slot="toggle-group-item"/g) ?? []).length).toBe(18);
+    expect(html).not.toContain("inset_0_-2px_0_var(--accent)");
+    expect(html).toContain('data-slot="titlebar-drag-region"');
+    expect(html).toMatch(/<header(?![^>]*data-tauri-drag-region)/);
+    expect(html).toContain('aria-label="返回工作区"');
+  });
+});

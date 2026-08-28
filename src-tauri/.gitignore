@@ -1,0 +1,4 @@
+/target/
+/binaries/
+/resources/pi-runtime/
+/.pi-sidecar-staging/

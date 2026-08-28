@@ -1,0 +1,139 @@
+name: 发布桌面应用
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "22.19.0"
+  BUN_VERSION: "1.3.4"
+
+jobs:
+  verify:
+    name: 发布前验证
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: 安装 pnpm 与 Node.js
+        uses: pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1
+        with:
+          runtime: node@${{ env.NODE_VERSION }}
+          cache: true
+          cache-dependency-path: pnpm-lock.yaml
+          install: false
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          components: clippy
+
+      - name: 缓存 Rust 构建产物
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri
+
+      - name: 安装 Linux 构建依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 校验发布版本
+        run: pnpm release:check
+
+      - name: 运行前端检查
+        run: |
+          pnpm lint
+          pnpm test
+          pnpm build
+
+      - name: 运行 Rust 检查
+        run: |
+          cargo test --locked --manifest-path src-tauri/Cargo.toml
+          cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+  package:
+    name: 打包 ${{ matrix.name }}
+    needs: verify
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Apple Silicon
+            platform: macos-latest
+            signingIdentity: "-"
+          - name: macOS Intel
+            platform: macos-15-intel
+            signingIdentity: "-"
+          - name: Windows x64
+            platform: windows-latest
+            signingIdentity: ""
+          - name: Linux x64
+            platform: ubuntu-22.04
+            signingIdentity: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: 安装 pnpm 与 Node.js
+        uses: pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1
+        with:
+          runtime: node@${{ env.NODE_VERSION }}
+          cache: true
+          cache-dependency-path: pnpm-lock.yaml
+          install: false
+
+      - name: 安装 Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+
+      - name: 缓存 Rust 构建产物
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.name }}
+
+      - name: 安装 Linux 构建依赖
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: 安装前端依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 校验发布版本
+        run: pnpm release:check
+
+      - name: 构建并上传安装包
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.signingIdentity }}
+        with:
+          tagName: v__VERSION__
+          releaseName: ai-desk v__VERSION__
+          releaseBody: 下载对应系统的安装包即可安装。
+          releaseDraft: true
+          prerelease: false
+          generateReleaseNotes: true
+          uploadWorkflowArtifacts: true

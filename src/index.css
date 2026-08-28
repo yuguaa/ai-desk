@@ -1,0 +1,604 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "streamdown/styles.css";
+@source "../node_modules/streamdown/dist/*.js";
+
+@theme inline {
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+  --color-background: var(--bg-window);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--bg-surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--bg-surface-raised);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-foreground);
+  --color-secondary: var(--bg-surface);
+  --color-secondary-foreground: var(--text-secondary);
+  --color-muted: var(--bg-surface);
+  --color-muted-foreground: var(--text-tertiary);
+  --color-accent: var(--accent-tint);
+  --color-accent-foreground: var(--text-primary);
+  --color-border: var(--border-default);
+  --color-input: var(--control-border);
+  --color-ring: var(--accent);
+  --color-destructive: var(--error);
+  --color-sidebar: var(--bg-sidebar);
+  --color-sidebar-foreground: var(--text-primary);
+  --color-sidebar-border: var(--border-subtle);
+}
+
+:root {
+  color-scheme: dark;
+  --background-opacity: 1;
+
+  /*
+   * 原生石墨工作台：用连续的明度阶梯建立层级，不用蓝灰色铺满界面。
+   */
+  --bg-window: rgb(22 24 27 / var(--background-opacity));
+  --bg-titlebar: rgb(24 26 29 / var(--background-opacity));
+  --bg-sidebar: rgb(25 27 31 / var(--background-opacity));
+  --bg-workspace: rgb(29 31 35 / var(--background-opacity));
+  --bg-surface: rgb(33 36 41 / var(--background-opacity));
+  --bg-surface-raised: rgb(37 40 46 / var(--background-opacity));
+  --bg-hover: rgb(41 45 51 / var(--background-opacity));
+  --bg-selected: rgb(43 52 65 / var(--background-opacity));
+
+  --text-primary: rgb(255 255 255 / 0.9);
+  --text-secondary: rgb(255 255 255 / 0.62);
+  --text-tertiary: rgb(255 255 255 / 0.4);
+  --text-disabled: rgb(255 255 255 / 0.26);
+
+  --accent-rgb: 91 145 245;
+  --accent: rgb(var(--accent-rgb));
+  --accent-hover: color-mix(in srgb, var(--accent) 84%, white);
+  --accent-active: color-mix(in srgb, var(--accent) 82%, black);
+  --accent-foreground: #ffffff;
+  --accent-tint-soft: rgb(var(--accent-rgb) / 0.08);
+  --accent-tint: rgb(var(--accent-rgb) / 0.13);
+  --accent-tint-strong: rgb(var(--accent-rgb) / 0.22);
+  --accent-border: rgb(var(--accent-rgb) / 0.32);
+
+  --success: #5abf8a;
+  --success-tint: rgb(90 191 138 / 0.12);
+  --warning: #d6a85c;
+  --warning-tint: rgb(214 168 92 / 0.12);
+  --error: #d46a6a;
+  --error-tint: rgb(212 106 106 / 0.12);
+
+  --border-subtle: rgb(255 255 255 / 0.055);
+  --border-default: rgb(255 255 255 / 0.075);
+  --border-strong: rgb(255 255 255 / 0.11);
+  --control-bg: rgb(255 255 255 / 0.025);
+  --control-bg-hover: rgb(255 255 255 / 0.045);
+  --control-bg-disabled: rgb(255 255 255 / 0.014);
+  --control-border: rgb(255 255 255 / 0.1);
+  --control-border-hover: rgb(255 255 255 / 0.16);
+  --control-placeholder: rgb(255 255 255 / 0.31);
+  --control-shadow: inset 0 1px 0 rgb(255 255 255 / 0.025), 0 1px 1px rgb(0 0 0 / 0.12);
+  --composer-bg: #292c31;
+  --composer-bg-hover: #2c3035;
+  --composer-border: rgb(255 255 255 / 0.1);
+  --composer-shadow: 0 1px 2px rgb(0 0 0 / 0.22), 0 8px 24px rgb(0 0 0 / 0.16);
+  --composer-shadow-focus: 0 0 0 1px var(--accent-border), 0 1px 2px rgb(0 0 0 / 0.22), 0 8px 24px rgb(0 0 0 / 0.18);
+  --composer-submit-bg: rgb(255 255 255 / 0.9);
+  --composer-submit-bg-hover: #ffffff;
+  --composer-submit-text: #1b1d20;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.18);
+  --shadow-popover: 0 1px 2px rgb(0 0 0 / 0.25), 0 4px 12px rgb(0 0 0 / 0.3);
+  --focus-ring: 0 0 0 1px var(--accent);
+
+  --project-amber: #c9a15e;
+  --project-blue: #7ea8e8;
+  --project-green: #69b98c;
+  --project-violet: #a995cf;
+  --project-slate: #8a919e;
+
+  --syntax-property: #87aee9;
+  --syntax-string: #78b995;
+  --syntax-number: #c99a67;
+  --syntax-constant: #a995cf;
+  --syntax-keyword: #94a9ce;
+  --syntax-comment: rgb(255 255 255 / 0.34);
+  --syntax-heading: #9bb9ec;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Geist Variable", system-ui, sans-serif;
+  --font-code: ui-monospace, "SF Mono", "Cascadia Mono", "Geist Mono", Menlo, monospace;
+  --font-size-offset: 0px;
+  --font-size-9: calc(9px + var(--font-size-offset));
+  --font-size-9-5: calc(9.5px + var(--font-size-offset));
+  --font-size-10: calc(10px + var(--font-size-offset));
+  --font-size-10-5: calc(10.5px + var(--font-size-offset));
+  --font-size-11: calc(11px + var(--font-size-offset));
+  --font-size-11-5: calc(11.5px + var(--font-size-offset));
+  --font-size-12: calc(12px + var(--font-size-offset));
+  --font-size-12-5: calc(12.5px + var(--font-size-offset));
+  --font-size-13: calc(13px + var(--font-size-offset));
+  --font-size-14: calc(14px + var(--font-size-offset));
+  --font-size-15: calc(15px + var(--font-size-offset));
+  --font-size-16: calc(16px + var(--font-size-offset));
+  --font-size-17: calc(17px + var(--font-size-offset));
+
+  /*
+   * 容器只使用这一组可配置间距，控件内部尺寸仍由各自 primitive 管理。
+   */
+  --container-padding: 12px;
+  --container-padding-tight: max(4px, calc(var(--container-padding) - 4px));
+  --container-padding-loose: calc(var(--container-padding) + 4px);
+
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 9px;
+  --radius-composer: 12px;
+  --radius-pill: 999px;
+
+  --motion-fast: 100ms;
+  --motion-base: 140ms;
+  --motion-slow: 200ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-window: rgb(242 242 243 / var(--background-opacity));
+  --bg-titlebar: rgb(236 237 239 / var(--background-opacity));
+  --bg-sidebar: rgb(236 237 239 / var(--background-opacity));
+  --bg-workspace: rgb(245 245 246 / var(--background-opacity));
+  --bg-surface: rgb(255 255 255 / var(--background-opacity));
+  --bg-surface-raised: rgb(255 255 255 / var(--background-opacity));
+  --bg-hover: rgb(236 238 241 / var(--background-opacity));
+  --bg-selected: rgb(220 230 244 / var(--background-opacity));
+  --text-primary: rgb(0 0 0 / 0.86);
+  --text-secondary: rgb(0 0 0 / 0.64);
+  --text-tertiary: rgb(0 0 0 / 0.48);
+  --text-disabled: rgb(0 0 0 / 0.3);
+  --accent-rgb: 42 111 224;
+  --accent-hover: color-mix(in srgb, var(--accent) 86%, black);
+  --accent-active: color-mix(in srgb, var(--accent) 72%, black);
+  --accent-foreground: #ffffff;
+  --accent-tint-soft: rgb(var(--accent-rgb) / 0.06);
+  --accent-tint: rgb(var(--accent-rgb) / 0.1);
+  --accent-tint-strong: rgb(var(--accent-rgb) / 0.2);
+  --accent-border: rgb(var(--accent-rgb) / 0.28);
+  --border-subtle: rgb(0 0 0 / 0.06);
+  --border-default: rgb(0 0 0 / 0.09);
+  --border-strong: rgb(0 0 0 / 0.15);
+  --control-bg: rgb(255 255 255 / 0.88);
+  --control-bg-hover: #ffffff;
+  --control-bg-disabled: rgb(0 0 0 / 0.025);
+  --control-border: rgb(0 0 0 / 0.13);
+  --control-border-hover: rgb(0 0 0 / 0.22);
+  --control-placeholder: rgb(0 0 0 / 0.38);
+  --control-shadow: inset 0 1px 0 rgb(255 255 255 / 0.9), 0 1px 1px rgb(0 0 0 / 0.04);
+  --composer-bg: #ffffff;
+  --composer-bg-hover: #ffffff;
+  --composer-border: rgb(0 0 0 / 0.12);
+  --composer-shadow: 0 1px 2px rgb(0 0 0 / 0.08), 0 8px 24px rgb(0 0 0 / 0.07);
+  --composer-shadow-focus: 0 0 0 1px var(--accent-border), 0 1px 2px rgb(0 0 0 / 0.08), 0 8px 24px rgb(0 0 0 / 0.08);
+  --composer-submit-bg: #202124;
+  --composer-submit-bg-hover: #090a0b;
+  --composer-submit-text: #ffffff;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.08);
+  --shadow-popover: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 12px rgb(0 0 0 / 0.1);
+  --success: #1f9d63;
+  --success-tint: rgb(31 157 99 / 0.1);
+  --warning: #b07a1f;
+  --warning-tint: rgb(176 122 31 / 0.1);
+  --error: #c84a4a;
+  --error-tint: rgb(200 74 74 / 0.1);
+  --syntax-property: #3567a8;
+  --syntax-string: #28764d;
+  --syntax-number: #9a602a;
+  --syntax-constant: #6e56a1;
+  --syntax-keyword: #526d9a;
+  --syntax-comment: rgb(0 0 0 / 0.4);
+  --syntax-heading: #315f9d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  background: var(--bg-window);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-13);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.prompt-editor .ProseMirror {
+  min-height: 7.25rem;
+  max-height: min(30vh, 15rem);
+  overflow-y: auto;
+  padding: 0.75rem 0.875rem 3rem;
+  color: var(--text-primary);
+  font-size: var(--font-size-13);
+  line-height: 1.35rem;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.prompt-editor .ProseMirror p {
+  margin: 0;
+}
+
+/*
+ * Radix ScrollArea 的 table 测量容器会被长文本撑宽。
+ * 会话流和左右面板统一约束为可收缩的块级宽度。
+ */
+.conversation-scroll-area [data-slot="scroll-area-viewport"] > div,
+.panel-scroll-area [data-slot="scroll-area-viewport"] > div {
+  display: block !important;
+  width: 100%;
+  min-width: 0 !important;
+}
+
+/* 消息流和输入框共用同一内容列，确保两者边界严格对齐。 */
+.conversation-column {
+  width: min(100%, clamp(72ch, 60cqw, 82ch));
+  margin-inline: auto;
+}
+
+/*
+ * 依据中间工作区的实际宽度连续调整消息流和输入器，
+ * 避免侧栏调整后仅按窗口宽度误判。
+ */
+.workspace-main {
+  container-type: inline-size;
+}
+
+button,
+input,
+textarea {
+  font-family: inherit;
+}
+
+/* 交互元素统一使用可感知的鼠标形态，禁用态由组件自身覆盖。 */
+:is(
+  button:not(:disabled),
+  a[href],
+  label[for],
+  [role="button"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([data-disabled]),
+  [role="menuitemcheckbox"]:not([data-disabled]),
+  [role="menuitemradio"]:not([data-disabled]),
+  [role="option"]:not([data-disabled]),
+  [role="tab"]:not([aria-disabled="true"])
+) {
+  cursor: pointer;
+}
+
+:is(input:not([type="range"]):not([type="color"]), textarea, [contenteditable="true"]) {
+  cursor: text;
+}
+
+:is(button:disabled, input:disabled, textarea:disabled, [aria-disabled="true"], [data-disabled]) {
+  cursor: not-allowed;
+}
+
+.color-input {
+  width: 36px;
+  height: 28px;
+  flex: none;
+  cursor: pointer;
+  overflow: hidden;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  background: var(--control-bg);
+  padding: 3px;
+  transition: border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.color-input:hover {
+  border-color: var(--control-border-hover);
+}
+
+.color-input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-input::-webkit-color-swatch {
+  border: 0;
+  border-radius: var(--radius-xs);
+}
+
+[data-slot="input-number"] input::-webkit-inner-spin-button,
+[data-slot="input-number"] input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+.animate-icon-shell {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.animate-icon-motion {
+  display: inline-flex;
+  width: 100%;
+  height: 100%;
+  transform-origin: center;
+  transition: transform var(--motion-base) var(--ease-out);
+}
+
+.animate-icon > svg {
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * Lucide 负责图标来源，只有交互控件触发反馈，静态图标保持稳定。
+ */
+.animate-icon-shell:has(+ [data-slot="input"]:is(:hover, :focus-visible)) .animate-icon-motion,
+:is(
+  button,
+  a,
+  [role="button"],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="menuitemradio"],
+  [role="option"],
+  [role="tab"]
+):is(:hover, :focus-visible) .animate-icon-motion {
+  transform: scale(1.04);
+}
+
+:is(
+  button,
+  a,
+  [role="button"],
+  [role="menuitem"],
+  [role="menuitemcheckbox"],
+  [role="menuitemradio"],
+  [role="option"],
+  [role="tab"]
+):active .animate-icon-motion {
+  transform: scale(0.94);
+  transition-duration: var(--motion-fast);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-icon-motion {
+    transition: none;
+  }
+
+  .animate-icon-shell:has(+ [data-slot="input"]:is(:hover, :focus-visible, :active)) .animate-icon-motion,
+  :is(
+    button,
+    a,
+    [role="button"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="option"],
+    [role="tab"]
+  ):is(:hover, :focus-visible, :active) .animate-icon-motion {
+    transform: none;
+  }
+}
+
+.streamdown-message {
+  color: var(--text-primary);
+  font-size: var(--font-size-13);
+  line-height: 1.65;
+}
+
+.streamdown-message [data-streamdown^="heading-"] {
+  margin-block: 1.25rem 0.5rem;
+  color: var(--text-primary);
+  font-size: var(--font-size-15);
+  line-height: 1.4;
+}
+
+.streamdown-message [data-streamdown="heading-1"] {
+  font-size: var(--font-size-17);
+}
+
+.streamdown-message [data-streamdown="code-block"] {
+  margin-block: 0.875rem;
+  border-color: var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.streamdown-message [data-streamdown="code-block-body"] {
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-window);
+}
+
+.streamdown-message [data-streamdown="code-block-copy-button"] {
+  display: inline-flex;
+  width: 1.5rem;
+  height: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+
+.streamdown-message [data-streamdown="blockquote"] {
+  border-color: var(--accent-border);
+  color: var(--text-secondary);
+}
+
+.streamdown-message a {
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+.app-titlebar {
+  user-select: none;
+}
+
+.panel-resize-handle:hover,
+.panel-resize-handle:active {
+  background: var(--accent-tint-strong);
+}
+
+.mascot-image {
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 5px 12px rgb(0 0 0 / 0.28));
+}
+
+.mascot-image--moving {
+  animation: mascot-breathe 4.8s ease-in-out infinite;
+}
+
+.mascot-backdrop {
+  width: auto;
+  opacity: 0.105;
+  filter: saturate(0.72) contrast(0.9);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgb(0 0 0 / 0.72) 24%, #000 48%, #000 100%);
+  mask-image: linear-gradient(to right, transparent 0%, rgb(0 0 0 / 0.72) 24%, #000 48%, #000 100%);
+}
+
+:root[data-theme="light"] .mascot-backdrop {
+  opacity: 0.06;
+  filter: saturate(0.62) contrast(0.84);
+}
+
+@keyframes mascot-breathe {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+.hljs {
+  color: var(--text-secondary);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--syntax-comment);
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-built_in,
+.hljs-type {
+  color: var(--syntax-keyword, var(--accent));
+}
+
+.hljs-string,
+.hljs-attr,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--syntax-string, var(--success));
+}
+
+.hljs-number,
+.hljs-variable,
+.hljs-template-variable {
+  color: var(--syntax-number, var(--warning));
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--syntax-heading, var(--accent));
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: var(--syntax-constant, var(--text-secondary));
+}
+
+::selection {
+  background: var(--accent-tint-strong);
+  color: var(--text-primary);
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, white 12%, transparent);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, white 22%, transparent);
+  background-clip: padding-box;
+}
+
+:root[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgb(0 0 0 / 0.16);
+  background-clip: padding-box;
+}
+
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgb(0 0 0 / 0.28);
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  .mascot-backdrop {
+    height: 82%;
+    max-width: 38%;
+    opacity: 0.07;
+  }
+}

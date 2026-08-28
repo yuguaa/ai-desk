@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ai-desk",
+  "version": "0.1.0",
+  "identifier": "com.pine-storm.ai-desk",
+  "build": {
+    "beforeDevCommand": "pnpm build:pi-sidecar && pnpm web:dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build:pi-sidecar && pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ai-desk",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": { "x": 16, "y": 18 },
+        "hiddenTitle": true,
+        "backgroundColor": "#16181b"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: https://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": ["binaries/pi"],
+    "resources": {
+      "resources/pi-runtime/": "pi-runtime/"
+    },
+    "category": "DeveloperTool",
+    "shortDescription": "A local desktop UI for pi-coding-agent",
+    "longDescription": "A native desktop interface for browsing and presenting local Pi coding-agent sessions."
+  }
+}
