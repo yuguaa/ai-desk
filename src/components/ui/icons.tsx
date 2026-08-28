@@ -64,6 +64,7 @@ import {
   Square as SquareIcon,
   Sun as SunIcon,
   Terminal as TerminalIcon,
+  Trash2 as Trash2Icon,
   TriangleAlert as TriangleAlertIcon,
   UserRound as UserRoundIcon,
   X as XIcon,
@@ -163,6 +164,7 @@ export const SlidersHorizontal = icon(SlidersHorizontalIcon);
 export const Sparkles = icon(SparklesIcon);
 export const Sun = icon(SunIcon);
 export const Terminal = icon(TerminalIcon);
+export const Trash2 = icon(Trash2Icon);
 export const TriangleAlert = icon(TriangleAlertIcon);
 export const UserRound = icon(UserRoundIcon);
 export const X = icon(XIcon);
