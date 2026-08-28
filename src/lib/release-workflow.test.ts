@@ -7,6 +7,12 @@ const workflow = readFileSync(
 );
 
 describe("release workflow", () => {
+  it("使用系统 Node.js 安装 pnpm，兼容 Intel macOS runner", () => {
+    expect(workflow).not.toContain("pnpm/setup@");
+    expect(workflow.match(/actions\/setup-node@/g)).toHaveLength(2);
+    expect(workflow.match(/npm install --global pnpm@11\.22\.0/g)).toHaveLength(2);
+  });
+
   it("在 Rust 检查前构建当前平台的 Pi sidecar", () => {
     const verifyJob = workflow.slice(
       workflow.indexOf("  verify:"),
