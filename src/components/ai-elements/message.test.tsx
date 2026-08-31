@@ -21,6 +21,24 @@ describe("MessageResponse", () => {
 
     expect(html).toContain('data-streamdown="strong">重点</span>');
     expect(html).toContain("--streamdown-caret");
+    expect(html).toContain("streamdown-message-streaming");
+  });
+
+  it("流式光标不参与正文布局", () => {
+    const stylesheet = readFileSync(new URL("../../index.css", import.meta.url), "utf8");
+    const caretContainerRule = stylesheet.match(
+      /\.streamdown-message-streaming > :last-child \{([^}]*)\}/,
+    )?.[1];
+    const caretRule = stylesheet.match(
+      /\.streamdown-message-streaming > :last-child::after \{([^}]*)\}/,
+    )?.[1];
+
+    expect(caretContainerRule).toContain("position: relative");
+    expect(caretRule).toContain("display: inline-block");
+    expect(caretRule).toContain("position: absolute");
+    expect(caretRule).toContain("width: 0");
+    expect(caretRule).toContain("height: 0");
+    expect(caretRule).toContain("overflow: visible");
   });
 
   it("代码块复制按钮中的图标保持居中", () => {

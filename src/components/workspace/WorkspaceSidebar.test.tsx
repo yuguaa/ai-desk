@@ -71,7 +71,7 @@ describe("WorkspaceSidebar", () => {
 
     await act(async () => {
       root?.render(<TooltipProvider><WorkspaceSidebar
-          projects={[{ id: "/code/demo", name: "demo", path: "/code/demo", tone: "" }]}
+          projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
           conversations={[{ id: "session-1", projectId: "/code/demo", title: "定位会话菜单", preview: "", time: "刚刚" }]}
           pinnedConversationIds={[]}
           activeProjectId="/code/demo"
@@ -122,7 +122,7 @@ describe("WorkspaceSidebar", () => {
 
     await act(async () => {
       root?.render(<TooltipProvider><WorkspaceSidebar
-          projects={[{ id: "/code/demo", name: "demo", path: "/code/demo", tone: "" }]}
+          projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
           conversations={[{ id: "session-1", projectId: "/code/demo", title: "运行中的会话", preview: "", time: "刚刚" }]}
           pinnedConversationIds={[]}
           activeProjectId="/code/demo"
@@ -164,7 +164,7 @@ describe("WorkspaceSidebar", () => {
 
     await act(async () => {
       root?.render(<TooltipProvider><WorkspaceSidebar
-          projects={[{ id: "/code/demo", name: "demo", path: "/code/demo", tone: "" }]}
+          projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
           conversations={[{ id: "session-1", projectId: "/code/demo", title: "快捷操作", preview: "", time: "刚刚" }]}
           pinnedConversationIds={[]}
           activeProjectId="/code/demo"
@@ -208,7 +208,7 @@ describe("WorkspaceSidebar", () => {
     root = createRoot(container);
 
     const renderSidebar = (completedConversationIds: string[]) => root?.render(<TooltipProvider><WorkspaceSidebar
-      projects={[{ id: "/code/demo", name: "demo", path: "/code/demo", tone: "" }]}
+      projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
       conversations={[{ id: "session-1", projectId: "/code/demo", title: "等待查看", preview: "", time: "刚刚" }]}
       pinnedConversationIds={[]}
       activeProjectId="/code/demo"
@@ -249,7 +249,7 @@ describe("WorkspaceSidebar", () => {
 
     await act(async () => {
       root?.render(<TooltipProvider><WorkspaceSidebar
-          projects={[{ id: "/code/demo", name: "demo", path: "/code/demo", tone: "" }]}
+          projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
           conversations={[{ id: "session-1", projectId: "/code/demo", title: "原会话名称", preview: "", time: "刚刚" }]}
           pinnedConversationIds={[]}
           activeProjectId="/code/demo"
@@ -282,7 +282,7 @@ describe("WorkspaceSidebar", () => {
 
     await act(async () => {
       root?.render(<TooltipProvider><WorkspaceSidebar
-          projects={[{ id: "/code/demo", name: "demo", path: "/code/demo", tone: "" }]}
+          projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
           conversations={[{ id: "session-1", projectId: "/code/demo", title: "原会话名称", preview: "", time: "刚刚" }]}
           pinnedConversationIds={["session-1"]}
           activeProjectId="/code/demo"

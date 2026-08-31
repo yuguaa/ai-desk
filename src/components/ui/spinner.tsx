@@ -6,7 +6,7 @@ function Spinner({ className, ...props }: IconProps) {
     <LoaderCircle
       role="status"
       aria-label="加载中"
-      className={cn("size-4 animate-spin", className)}
+      className={cn("size-4 shrink-0 self-center align-middle leading-none animate-spin", className)}
       {...props}
     />
   )

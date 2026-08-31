@@ -178,6 +178,59 @@ describe("useWorkspace", () => {
     expect(workspace?.timeline.find((item) => item.type === "tool")).toMatchObject({ command: "ls", output: "done", status: "completed" });
   });
 
+  it("agent settled 后只刷新项目元数据，不覆盖活动时间线", async () => {
+    await mountWorkspace();
+
+    emitEvent("c1", { type: "message_start", message: { id: "m-1", role: "assistant" } });
+    emitEvent("c1", { type: "message_update", assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, id: "tool-1", toolName: "bash" } });
+    emitEvent("c1", { type: "message_update", assistantMessageEvent: { type: "toolcall_end", contentIndex: 0, toolCall: { id: "tool-1", name: "bash", arguments: "ls" } } });
+    emitEvent("c1", { type: "tool_execution_end", toolCallId: "tool-1", toolName: "bash", result: { content: [{ text: "done" }] } });
+    emitEvent("c1", {
+      type: "message_end",
+      message: {
+        id: "m-1",
+        role: "assistant",
+        content: [
+          { type: "toolCall", id: "tool-1", name: "bash", arguments: "ls" },
+          { type: "text", text: "最终正文" },
+        ],
+      },
+    });
+
+    const liveItemIds = workspace?.timeline.map((item) => item.id);
+    bridge.session = {
+      activeEntries: [
+        {
+          type: "message",
+          id: "disk-message-1",
+          timestamp: "2026-08-31T08:00:00.000Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "toolCall", id: "tool-1", name: "bash", arguments: "ls" },
+              { type: "text", text: "最终正文" },
+            ],
+          },
+        },
+        {
+          type: "message",
+          id: "disk-tool-result-1",
+          timestamp: "2026-08-31T08:00:01.000Z",
+          message: { role: "toolResult", toolCallId: "tool-1", toolName: "bash", content: [{ type: "text", text: "done" }] },
+        },
+      ],
+    };
+
+    await act(async () => {
+      emitEvent("c1", { type: "agent_settled" });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(workspace?.timeline.map((item) => item.id)).toEqual(liveItemIds);
+  });
+
   it("仅在 abort 成功响应后清除 busy，并把 RPC 失败暴露到时间线", async () => {
     runtime.processList = [{ conversationId: "c1", pid: 101, running: true, busy: true }];
     await mountWorkspace();

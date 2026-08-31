@@ -1,14 +1,28 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PromptInput } from "@/components/ai-elements/prompt-input";
+import { PromptInput as PromptInputBase } from "@/components/ai-elements/prompt-input";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+// jsdom 缺少 ResizeObserver，radix TooltipContent 需要
+Reflect.set(globalThis, "ResizeObserver", class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+});
+
+// 包装 TooltipProvider：radix Tooltip 必须在 Provider 内使用
+function PromptInput(props: ComponentProps<typeof PromptInputBase>) {
+  return <TooltipProvider delayDuration={0}><PromptInputBase {...props} /></TooltipProvider>;
+}
 
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 
 afterEach(() => {
   if (root) act(() => root?.unmount());
+  document.querySelectorAll('[data-slot="tooltip-content"]').forEach((item) => item.remove());
   container?.remove();
   root = undefined;
   container = undefined;
@@ -63,9 +77,18 @@ describe("PromptInput", () => {
     const form = container.querySelector("form");
     const usage = container.querySelector('[data-slot="context-usage"]');
     const submit = container.querySelector('button[aria-label="发送任务"]');
-    expect(usage?.textContent).toBe("上下文 60K/200K · 30%");
+    // 上下文展示为进度环（conic-gradient 圆环，带进度值）
+    expect(usage?.querySelector("span[data-progress]")?.getAttribute("data-progress")).toBe("30");
     expect(usage?.closest("form")).toBe(form);
     expect(Boolean(usage && submit && (usage.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
+
+    // 鼠标放上去展示文本（通过聚焦触发，jsdom 下与真实 hover 同路）
+    await act(async () => {
+      (usage as HTMLElement)?.focus();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(document.querySelector('[data-slot="tooltip-content"]')?.textContent).toContain("60K/200K");
+    expect(document.querySelector('[data-slot="tooltip-content"]')?.textContent).toContain("30%");
   });
 
   it("按 Enter 发送任务", async () => {

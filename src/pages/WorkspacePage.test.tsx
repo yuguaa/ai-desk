@@ -1,10 +1,9 @@
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_APP_SETTINGS } from "@/lib/app-settings";
 
 const workspace = vi.hoisted(() => ({
-  activeProject: { id: "/demo", name: "demo", path: "/demo", tone: "" },
+  activeProject: { id: "/demo", name: "demo", path: "/demo" },
   activeConversation: null,
   activeConversationId: "",
   activeTurnIndexes: {},
@@ -85,7 +84,7 @@ import WorkspacePage from "@/pages/WorkspacePage";
 
 describe("WorkspacePage panel layout", () => {
   it("只使用三块区域的最小宽度约束拖动范围", () => {
-    const html = renderToStaticMarkup(<WorkspacePage settings={DEFAULT_APP_SETTINGS} onOpenSettings={vi.fn()} />);
+    const html = renderToStaticMarkup(<WorkspacePage onOpenSettings={vi.fn()} />);
 
     expect(html).toContain('data-layout="horizontal"');
     expect(html).toMatch(/data-panel-id="workspace-sidebar"[^>]*data-default-size="250"[^>]*data-min-size="220"/);

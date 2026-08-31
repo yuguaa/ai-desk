@@ -3,6 +3,7 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { ArrowUp, Brain, Check, ChevronDown, Cpu, Square } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConversationQueue } from "@/components/chat/ConversationQueue";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { QueuedConversationTurn } from "@/lib/conversation-queue";
@@ -134,15 +135,43 @@ export function PromptInput({
             />
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <span data-slot="context-usage" className="font-mono text-[var(--font-size-9-5)] text-[var(--text-tertiary)]" title={contextUsage?.tokens === null ? "压缩后将在下一次回复完成时更新" : undefined}>
-              {contextUsageLabel(contextUsage)}
-            </span>
+            <ContextUsageRing usage={contextUsage} />
             <ComposerActionButton value={value} isRunning={Boolean(isRunning)} isEditingQueue={Boolean(editingQueuedTurnId)} onAbort={onAbort} />
           </div>
         </div>
       </div>
     </form>
   );
+}
+
+function ContextUsageRing({ usage }: { usage?: PiContextUsage | null }) {
+  // 无数据时按 0% 渲染，弱化视觉，避免误导
+  const percent = usage?.percent ?? 0;
+  const progress = Math.max(0, Math.min(100, percent));
+  const label = contextUsageLabel(usage);
+  // tokens 为 null 表示压缩待更新，tooltip 给出明确提示
+  const hint = usage?.tokens === null ? "压缩后将在下一次回复完成时更新" : label;
+  // 使用率分级：<70% 正常，70-90% 警告，>90% 危险
+  const color = progress >= 90 ? "var(--error)" : progress >= 70 ? "var(--warning)" : progress > 0 ? "var(--accent)" : "var(--text-tertiary)";
+
+  return <Tooltip>
+    <TooltipTrigger asChild>
+      <span data-slot="context-usage" role="img" aria-label={label} tabIndex={0} className="relative grid size-5 shrink-0 place-items-center rounded-[var(--radius-sm)] text-[var(--text-tertiary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-border)]">
+        {/* conic-gradient 画进度弧 + radial-gradient mask 抠出中心圆孔 */}
+        <span
+          data-progress={progress}
+          className="pointer-events-none size-4 rounded-full"
+          style={{
+            background: `conic-gradient(${color} 0% ${progress}%, var(--text-tertiary) ${progress}% 100%)`,
+            opacity: progress > 0 ? 1 : 0.35,
+            WebkitMask: "radial-gradient(closest-side, transparent 68%, black 72%)",
+            mask: "radial-gradient(closest-side, transparent 68%, black 72%)",
+          }}
+        />
+      </span>
+    </TooltipTrigger>
+    <TooltipContent side="top" sideOffset={6}>{hint}</TooltipContent>
+  </Tooltip>;
 }
 
 function ComposerActionButton({ value, isRunning, isEditingQueue, onAbort }: { value: string; isRunning: boolean; isEditingQueue: boolean; onAbort?: () => void }) {
@@ -170,7 +199,7 @@ function ModelMenu({ models, selectedModel, runtimeAvailable, isRunning, onModel
         <ChevronDown size={11} className="text-[var(--text-tertiary)]" />
       </Button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="start" sideOffset={6} className="w-[310px] rounded-[var(--radius-md)] border-[var(--border-default)] bg-[var(--bg-surface-raised)] p-1.5 text-[var(--text-primary)] shadow-[var(--shadow-popover)]">
+    <DropdownMenuContent align="start" sideOffset={6} className="w-[310px] rounded-[var(--radius-md)] border-[var(--border-default)] bg-[var(--bg-popover)] p-1.5 text-[var(--text-primary)] shadow-[var(--shadow-popover)]">
       <DropdownMenuLabel className="flex items-center gap-1.5 px-2 py-1.5 text-[var(--font-size-10-5)] font-medium text-[var(--text-tertiary)]"><Cpu size={12} />模型</DropdownMenuLabel>
       <DropdownMenuRadioGroup value={selectedModel ? piModelKey(selectedModel) : ""} onValueChange={onModelChange}>
         {models.map((model) => {
@@ -200,7 +229,7 @@ function ThinkingMenu({ thinkingLevel, thinkingLevels, runtimeAvailable, isRunni
         <ChevronDown size={11} className="text-[var(--text-tertiary)]" />
       </Button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent align="start" sideOffset={6} className="w-[260px] rounded-[var(--radius-md)] border-[var(--border-default)] bg-[var(--bg-surface-raised)] p-1.5 text-[var(--text-primary)] shadow-[var(--shadow-popover)]">
+    <DropdownMenuContent align="start" sideOffset={6} className="w-[260px] rounded-[var(--radius-md)] border-[var(--border-default)] bg-[var(--bg-popover)] p-1.5 text-[var(--text-primary)] shadow-[var(--shadow-popover)]">
       <DropdownMenuLabel className="flex items-center gap-1.5 px-2 py-1.5 text-[var(--font-size-10-5)] font-medium text-[var(--text-tertiary)]"><Brain size={12} />思考深度</DropdownMenuLabel>
       <DropdownMenuRadioGroup value={thinkingLevel ?? ""} onValueChange={onThinkingChange}>
         {thinkingLevels.map((level) => {

@@ -143,7 +143,21 @@ function textFromContentPart(part: unknown, includeText: boolean, includeThinkin
 
 function timeFromEntry(entry: SessionEntry) {
   const timestamp = typeof entry.timestamp === "string" ? entry.timestamp : "";
-  return timestamp ? new Date(timestamp).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "刚刚";
+  return timestamp ? formatMessageTime(timestamp) : "刚刚";
+}
+
+// 当天只显时分，非当天带日期（跨年补年份），无有效时间回退为“刚刚”
+export function formatMessageTime(timestamp: string | number): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "刚刚";
+  const now = new Date();
+  const time = date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  const sameDay = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
+  if (sameDay) return time;
+  const day = date.getFullYear() === now.getFullYear()
+    ? date.toLocaleDateString("zh-CN", { month: "long", day: "numeric" })
+    : date.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric" });
+  return `${day} ${time}`;
 }
 
 function stringifyToolValue(value: unknown) {

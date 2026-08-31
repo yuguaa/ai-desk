@@ -30,7 +30,7 @@ import {
 } from "@/lib/workspace-data";
 import { pickProjectDirectory } from "@/lib/workspace-bridge";
 import { addProjectPreference, archiveConversationPreference, isProjectTrusted, loadWorkspacePreferences, normalizeProjectPath, removeProjectPreference, saveWorkspacePreferences, setConversationPinnedPreference, setProjectTrustedPreference } from "@/lib/workspace-preferences";
-import { projectPiSession, textFromContent, type TimelineItem } from "@/lib/pi-session";
+import { formatMessageTime, projectPiSession, textFromContent, type TimelineItem } from "@/lib/pi-session";
 import type { ConversationRecord, Project } from "@/types/workspace";
 
 type TimelineMap = Record<string, TimelineItem[]>;
@@ -328,7 +328,7 @@ export function useWorkspace() {
         })),
   ).then(() => undefined);
 
-  const applyPiProjects = (items: Awaited<ReturnType<typeof listPiProjects>>) => {
+  const applyPiProjects = (items: Awaited<ReturnType<typeof listPiProjects>>, reloadActiveTimeline = true) => {
     const currentProjects = projectsRef.current;
     const currentConversations = conversationsRef.current;
     const normalized = normalizePiProjects(items, workspacePreferencesRef.current);
@@ -373,7 +373,7 @@ export function useWorkspace() {
     activeConversationRef.current = preferredConversation.id;
     setActiveConversationId(preferredConversation.id);
     restoreConversationDraft(preferredConversation.id);
-    loadConversationTimeline(preferredConversation);
+    if (reloadActiveTimeline) loadConversationTimeline(preferredConversation);
     ensureProcess(preferredConversation, preferredProject).catch(() => undefined);
   };
 
@@ -384,6 +384,10 @@ export function useWorkspace() {
       .catch(() => undefined)
       .finally(() => setIsLoading(false));
   };
+
+  const refreshProjectMetadata = () => listPiProjects()
+    .then((items) => applyPiProjects(items, false))
+    .catch(() => undefined);
 
   function applyRuntimeEvent(payload: PiRuntimeEvent) {
     const { conversationId, event } = payload;
@@ -405,7 +409,11 @@ export function useWorkspace() {
       refreshContextUsage(conversationId).catch(() => undefined);
       flushPendingManualSteers(conversationId, "prompt");
       pumpConversationQueue(conversationId);
-      refreshProjects();
+      /*
+       * 运行事件已经维护了活动时间线，结束后这里只同步项目和会话元数据。
+       * 重新读取磁盘时间线会更换消息 key，并让展开的工具输出重新挂载后折叠。
+       */
+      refreshProjectMetadata();
       return;
     }
     if (type === "message_start") {
@@ -807,7 +815,7 @@ export function useWorkspace() {
       workspacePreferencesRef.current = nextPreferences;
       saveWorkspacePreferences(nextPreferences);
       const existing = projectsRef.current.find((project) => project.id === normalizedPath);
-      const project = existing ?? projectFromPath(normalizedPath, projectsRef.current.length);
+      const project = existing ?? projectFromPath(normalizedPath);
       if (!existing) {
         const nextProjects = [...projectsRef.current, project];
         projectsRef.current = nextProjects;
@@ -952,7 +960,7 @@ export function useWorkspace() {
       if ((conversationExecutionEpochRef.current.get(conversation.id) ?? 0) !== executionEpoch) throw CANCELLED_CONVERSATION_EXECUTION;
     };
     const submittedTurn = { conversationId: conversation.id, turnIndex, prompt: text };
-    appendTimeline(conversation.id, { id: `u-${messageId}-${turnIndex}`, type: "user", text, time: `今天 ${new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` });
+    appendTimeline(conversation.id, { id: `u-${messageId}-${turnIndex}`, type: "user", text, time: formatMessageTime(Date.now()) });
     setActiveTurnIndex(conversation.id, turnIndex);
 
     if (!runtimeIsTauri) {
@@ -1272,8 +1280,7 @@ function parseContentIndex(value: unknown) {
 
 function runtimeMessageTime(message: Record<string, unknown>) {
   const raw = message.timestamp;
-  const date = typeof raw === "string" || typeof raw === "number" ? new Date(raw) : null;
-  return date && !Number.isNaN(date.getTime()) ? date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "刚刚";
+  return typeof raw === "string" || typeof raw === "number" ? formatMessageTime(raw) : "刚刚";
 }
 
 function formatArguments(value: unknown) {

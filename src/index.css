@@ -10,7 +10,7 @@
   --color-foreground: var(--text-primary);
   --color-card: var(--bg-surface);
   --color-card-foreground: var(--text-primary);
-  --color-popover: var(--bg-surface-raised);
+  --color-popover: var(--bg-popover);
   --color-popover-foreground: var(--text-primary);
   --color-primary: var(--accent);
   --color-primary-foreground: var(--accent-foreground);
@@ -32,6 +32,8 @@
 :root {
   color-scheme: dark;
   --background-opacity: 1;
+  --surface-opacity: 1;
+  --popover-opacity: 1;
 
   /*
    * 原生石墨工作台：用连续的明度阶梯建立层级，不用蓝灰色铺满界面。
@@ -40,10 +42,11 @@
   --bg-titlebar: rgb(24 26 29 / var(--background-opacity));
   --bg-sidebar: rgb(25 27 31 / var(--background-opacity));
   --bg-workspace: rgb(29 31 35 / var(--background-opacity));
-  --bg-surface: rgb(33 36 41 / var(--background-opacity));
-  --bg-surface-raised: rgb(37 40 46 / var(--background-opacity));
-  --bg-hover: rgb(41 45 51 / var(--background-opacity));
-  --bg-selected: rgb(43 52 65 / var(--background-opacity));
+  --bg-surface: rgb(33 36 41 / var(--surface-opacity));
+  --bg-surface-raised: rgb(37 40 46 / var(--surface-opacity));
+  --bg-hover: rgb(41 45 51 / var(--surface-opacity));
+  --bg-selected: rgb(43 52 65 / var(--surface-opacity));
+  --bg-popover: rgb(40 43 49 / var(--popover-opacity));
 
   --text-primary: rgb(255 255 255 / 0.9);
   --text-secondary: rgb(255 255 255 / 0.62);
@@ -88,12 +91,6 @@
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.18);
   --shadow-popover: 0 1px 2px rgb(0 0 0 / 0.25), 0 4px 12px rgb(0 0 0 / 0.3);
   --focus-ring: 0 0 0 1px var(--accent);
-
-  --project-amber: #c9a15e;
-  --project-blue: #7ea8e8;
-  --project-green: #69b98c;
-  --project-violet: #a995cf;
-  --project-slate: #8a919e;
 
   --syntax-property: #87aee9;
   --syntax-string: #78b995;
@@ -146,10 +143,11 @@
   --bg-titlebar: rgb(236 237 239 / var(--background-opacity));
   --bg-sidebar: rgb(236 237 239 / var(--background-opacity));
   --bg-workspace: rgb(245 245 246 / var(--background-opacity));
-  --bg-surface: rgb(255 255 255 / var(--background-opacity));
-  --bg-surface-raised: rgb(255 255 255 / var(--background-opacity));
-  --bg-hover: rgb(236 238 241 / var(--background-opacity));
-  --bg-selected: rgb(220 230 244 / var(--background-opacity));
+  --bg-surface: rgb(255 255 255 / var(--surface-opacity));
+  --bg-surface-raised: rgb(255 255 255 / var(--surface-opacity));
+  --bg-hover: rgb(236 238 241 / var(--surface-opacity));
+  --bg-selected: rgb(220 230 244 / var(--surface-opacity));
+  --bg-popover: rgb(255 255 255 / var(--popover-opacity));
   --text-primary: rgb(0 0 0 / 0.86);
   --text-secondary: rgb(0 0 0 / 0.64);
   --text-tertiary: rgb(0 0 0 / 0.48);
@@ -237,11 +235,7 @@ body {
   margin: 0;
 }
 
-/*
- * Radix ScrollArea 的 table 测量容器会被长文本撑宽。
- * 会话流和左右面板统一约束为可收缩的块级宽度。
- */
-.conversation-scroll-area [data-slot="scroll-area-viewport"] > div,
+/* Radix ScrollArea 的 table 测量容器会被长文本撑宽。 */
 .panel-scroll-area [data-slot="scroll-area-viewport"] > div {
   display: block !important;
   width: 100%;
@@ -411,6 +405,23 @@ a,
   line-height: 1.65;
 }
 
+/*
+ * 流式光标保留视觉反馈，但脱离正文布局。
+ * 仅设置零宽高仍会让列表等块级结尾生成额外行盒，结束时高度会缩短一行。
+ */
+.streamdown-message-streaming > :last-child {
+  position: relative;
+}
+
+.streamdown-message-streaming > :last-child::after {
+  display: inline-block;
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  white-space: nowrap;
+}
+
 .streamdown-message [data-streamdown^="heading-"] {
   margin-block: 1.25rem 0.5rem;
   color: var(--text-primary);
@@ -473,17 +484,14 @@ a,
   animation: mascot-breathe 4.8s ease-in-out infinite;
 }
 
-.mascot-backdrop {
-  width: auto;
-  opacity: 0.105;
-  filter: saturate(0.72) contrast(0.9);
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgb(0 0 0 / 0.72) 24%, #000 48%, #000 100%);
-  mask-image: linear-gradient(to right, transparent 0%, rgb(0 0 0 / 0.72) 24%, #000 48%, #000 100%);
+.mascot-global-background {
+  opacity: 0.58;
+  filter: saturate(0.82) contrast(0.92) brightness(0.72);
 }
 
-:root[data-theme="light"] .mascot-backdrop {
-  opacity: 0.06;
-  filter: saturate(0.62) contrast(0.84);
+:root[data-theme="light"] .mascot-global-background {
+  opacity: 0.42;
+  filter: saturate(0.68) contrast(0.86) brightness(1.04);
 }
 
 @keyframes mascot-breathe {
@@ -673,9 +681,7 @@ a,
 }
 
 @media (max-width: 1100px) {
-  .mascot-backdrop {
-    height: 82%;
-    max-width: 38%;
-    opacity: 0.07;
+  .mascot-global-background {
+    opacity: 0.46;
   }
 }

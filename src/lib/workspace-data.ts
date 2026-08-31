@@ -2,29 +2,16 @@ import type { PiProjectSummary } from "@/lib/pi-bridge";
 import { normalizeProjectPath, type WorkspacePreferences } from "@/lib/workspace-preferences";
 import type { ConversationRecord, Project } from "@/types/workspace";
 
-const projectTones = [
-  "text-[var(--project-amber)]",
-  "text-[var(--project-blue)]",
-  "text-[var(--project-green)]",
-  "text-[var(--project-violet)]",
-  "text-[var(--project-slate)]",
-];
-
 export const EMPTY_PROJECT: Project = {
   id: "",
   name: "",
   path: "",
-  tone: projectTones[0],
 };
 
-function projectTone(index: number) {
-  return projectTones[index % projectTones.length];
-}
-
-export function projectFromPath(path: string, index: number): Project {
+export function projectFromPath(path: string): Project {
   const normalizedPath = normalizeProjectPath(path);
   const name = normalizedPath.split(/[\\/]/).filter(Boolean).at(-1) ?? normalizedPath;
-  return { id: normalizedPath, name, path: normalizedPath, tone: projectTone(index) };
+  return { id: normalizedPath, name, path: normalizedPath };
 }
 
 export function normalizePiProjects(items: PiProjectSummary[], preferences: WorkspacePreferences = { projectRoots: [], hiddenProjectRoots: [], trustedProjectRoots: [], archivedConversationIds: [], pinnedConversationIds: [] }) {

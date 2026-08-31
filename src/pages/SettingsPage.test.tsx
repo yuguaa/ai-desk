@@ -19,17 +19,39 @@ describe("SettingsPage", () => {
     expect(html).toContain("统一圆角");
     expect(html).toContain("背景透明度");
     expect(html).toContain("显示看板娘");
-    expect(html).toContain("工程师");
-    expect(html).toContain("领航员");
+    expect(html).toContain("图片源");
+    expect(html).toContain("内置图库");
+    expect(html).toContain("自定义 URL");
+    expect(html).toContain("绯红魅影");
+    expect(html).toContain("紫夜佳人");
+    expect(html).toContain("沙滩丽人");
+    expect(html).toContain("银发魅姬");
+    expect(html).toContain("魅惑御姐");
+    expect(html).not.toContain("工程师");
     expect((html.match(/data-slot="switch"/g) ?? []).length).toBe(2);
     expect((html.match(/data-slot="input-number"/g) ?? []).length).toBe(4);
+    expect(html).toMatch(/aria-label="背景透明度"[^>]*min="20"[^>]*max="100"[^>]*step="1"/);
     expect(html).toMatch(/aria-label="容器内边距"[^>]*min="8"[^>]*max="20"[^>]*step="1"/);
     expect((html.match(/data-slot="select-trigger"/g) ?? []).length).toBe(1);
-    expect((html.match(/data-slot="toggle-group"/g) ?? []).length).toBe(3);
-    expect((html.match(/data-slot="toggle-group-item"/g) ?? []).length).toBe(18);
+    expect((html.match(/data-slot="toggle-group"/g) ?? []).length).toBe(4);
+    expect((html.match(/data-slot="toggle-group-item"/g) ?? []).length).toBe(20);
     expect(html).not.toContain("inset_0_-2px_0_var(--accent)");
     expect(html).toContain('data-slot="titlebar-drag-region"');
+    expect(html).toContain('data-slot="settings-titlebar-actions"');
+    expect(html).toContain("max-w-[760px]");
     expect(html).toMatch(/<header(?![^>]*data-tauri-drag-region)/);
     expect(html).toContain('aria-label="返回工作区"');
+  });
+
+  it("renders a validated custom image source without the built-in grid", () => {
+    const settings = { ...DEFAULT_APP_SETTINGS, mascotSource: "customUrl" as const, mascotImageUrl: "https://example.com/mascot.png" };
+    const html = renderToStaticMarkup(<SettingsPage settings={settings} isTauri onBack={vi.fn()} onUpdate={vi.fn()} onReset={vi.fn()} />);
+
+    expect(html).toContain('aria-label="看板娘图片地址"');
+    expect(html).toContain('value="https://example.com/mascot.png"');
+    expect(html).toContain('src="https://example.com/mascot.png"');
+    expect(html).not.toContain("绯红魅影");
+    expect((html.match(/data-slot="toggle-group"/g) ?? []).length).toBe(3);
+    expect((html.match(/data-slot="toggle-group-item"/g) ?? []).length).toBe(14);
   });
 });

@@ -22,7 +22,7 @@ export function GitPanel({ status, selectedPath, isLoading, error, operation, on
   onGitAction: (action: GitAction) => Promise<boolean>;
 }) {
   const [commitMessage, setCommitMessage] = useState("");
-  if (isLoading && !status) return <div className="flex h-full items-center justify-center gap-2 text-[var(--font-size-11)] text-[var(--text-tertiary)]"><Spinner className="size-3.5" />读取 Git 状态…</div>;
+  if (isLoading && !status) return <div className="flex h-full items-center justify-center gap-2 text-[var(--font-size-11)] leading-none text-[var(--text-tertiary)]"><Spinner className="size-3.5" />读取 Git 状态…</div>;
   if (error && !status) return <div className="p-[var(--container-padding)]"><Alert variant="destructive"><AlertDescription><p>{error}</p><Button type="button" variant="outline" size="xs" onClick={onRefresh}><RefreshCw className="size-3" />重试</Button></AlertDescription></Alert></div>;
   if (!status) return <Empty className="h-full rounded-none border-0"><EmptyHeader><EmptyDescription className="text-[var(--font-size-11)]">当前目录不是 Git 仓库。</EmptyDescription></EmptyHeader></Empty>;
 

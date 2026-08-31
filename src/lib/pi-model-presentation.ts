@@ -36,10 +36,10 @@ export function thinkingLevelDescription(level: string) {
 }
 
 export function contextUsageLabel(usage: PiContextUsage | null | undefined) {
-  if (!usage) return "上下文 --";
+  if (!usage) return "--";
   const tokens = usage.tokens === null ? "--" : formatTokenCount(usage.tokens);
   const percent = usage.percent === null ? "--" : `${Math.round(usage.percent)}%`;
-  return `上下文 ${tokens}/${formatTokenCount(usage.contextWindow)} · ${percent}`;
+  return `${tokens}/${formatTokenCount(usage.contextWindow)} · ${percent}`;
 }
 
 function formatLevel(level: string) {

@@ -19,7 +19,7 @@ export function Tool({
   output: string;
   status: "completed" | "running" | "error";
 }) {
-  const [open, setOpen] = useState(status !== "completed");
+  const [open, setOpen] = useState(true);
   const Icon = status === "completed" ? Check : CircleAlert;
   const terminalOutput = formatTerminalOutput(name, command, output);
   return (
@@ -30,7 +30,7 @@ export function Tool({
             <span className="truncate text-[var(--font-size-12)] font-semibold text-[var(--text-secondary)]">{name}</span>
           </span>
         <span className="flex items-center gap-2">
-          <span className={cn("flex items-center gap-1 text-[var(--font-size-10-5)] font-medium", status === "completed" ? "text-[var(--success)]" : status === "error" ? "text-[var(--error)]" : "text-[var(--warning)]")}>{status === "running" ? <Spinner className="size-3" /> : <Icon className="size-3" />}{status === "completed" ? "完成" : status === "error" ? "失败" : "运行中"}</span>
+          <span className={cn("flex items-center gap-1 text-[var(--font-size-10-5)] font-medium leading-none", status === "completed" ? "text-[var(--success)]" : status === "error" ? "text-[var(--error)]" : "text-[var(--warning)]")}>{status === "running" ? <Spinner className="size-3" /> : <Icon className="size-3" />}{status === "completed" ? "完成" : status === "error" ? "失败" : "运行中"}</span>
           <ChevronDown className={cn("size-3.5 text-[var(--text-tertiary)] transition-transform", open && "rotate-180")} />
         </span>
       </Button></CollapsibleTrigger>

@@ -25,14 +25,7 @@ describe("Tool", () => {
       await Promise.resolve();
     });
 
-    const trigger = container.querySelector('[data-slot="collapsible-trigger"]');
-    expect(trigger?.textContent).not.toContain("pnpm test");
-
-    await act(async () => {
-      trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
-
+    // 默认展开，terminal 直接可见
     const terminal = container.querySelector('[data-slot="terminal"]');
     expect(terminal?.querySelector('[data-slot="terminal-title"]')?.textContent).toContain("bash");
     expect(terminal?.querySelector('[data-slot="terminal-content"]')?.textContent).toBe("$ pnpm test\n全部通过");

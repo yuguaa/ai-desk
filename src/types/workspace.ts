@@ -2,7 +2,6 @@ export type Project = {
   id: string;
   name: string;
   path: string;
-  tone: string;
 };
 
 export type ConversationRecord = {

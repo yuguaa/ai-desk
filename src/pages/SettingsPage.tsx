@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RuntimeBadge } from "@/components/workspace/RuntimeBadge";
 import { mascotImageFor, Mascot } from "@/components/mascot/Mascot";
-import { ACCENT_OPTIONS, FONT_OPTIONS, MASCOT_OPTIONS, normalizeHexColor, THEME_OPTIONS, type AccentColor, type AppSettings, type FontFamilyPreference, type ThemePreference } from "@/lib/app-settings";
+import { ACCENT_OPTIONS, FONT_OPTIONS, MASCOT_OPTIONS, MASCOT_SOURCE_OPTIONS, normalizeHexColor, normalizeMascotImageUrl, THEME_OPTIONS, type AccentColor, type AppSettings, type FontFamilyPreference, type MascotSource, type ThemePreference } from "@/lib/app-settings";
 import { isMacTauriRuntime } from "@/lib/pi-bridge";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +19,10 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
   const [saved, setSaved] = useState(false);
   const [customHex, setCustomHex] = useState(settings.customAccentColor);
   const immersive = isMacTauriRuntime();
+  const customMascotUrl = normalizeMascotImageUrl(settings.mascotImageUrl);
+  const invalidMascotUrl = settings.mascotImageUrl.length > 0 && !customMascotUrl;
+  const visibleMascots = settings.mascotSource === "builtIn" ? MASCOT_OPTIONS : [];
+  const activeMascotSource = MASCOT_SOURCE_OPTIONS.find((option) => option.value === settings.mascotSource) ?? MASCOT_SOURCE_OPTIONS[0];
 
   useEffect(() => setCustomHex(settings.customAccentColor), [settings.customAccentColor]);
 
@@ -39,13 +43,18 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
     saveIndicator();
   };
 
+  const updateMascotSource = (source: MascotSource) => {
+    change("mascotSource", source);
+    saveIndicator();
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-workspace)] text-[var(--text-primary)]">
-      <header data-immersive={immersive ? "true" : "false"} className="app-titlebar relative flex h-10 shrink-0 select-none items-center bg-[var(--bg-titlebar)] px-[var(--container-padding)] data-[immersive=true]:h-[52px] data-[immersive=true]:pl-[76px]">
+      <header data-immersive={immersive ? "true" : "false"} className="app-titlebar relative flex h-10 shrink-0 select-none items-center bg-[var(--bg-titlebar)] data-[immersive=true]:h-[52px]">
         <div data-tauri-drag-region="deep" data-slot="titlebar-drag-region" className="absolute inset-0" />
-        <div className="relative z-10 flex w-full items-center justify-between">
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5"><Settings size={14} className="text-[var(--text-tertiary)]" /><span className="text-[var(--font-size-12-5)] font-medium">设置</span></div>
+        <div data-slot="settings-titlebar-actions" className="relative z-10 mx-auto flex w-full max-w-[760px] items-center justify-between px-[var(--container-padding-loose)]">
           <Button type="button" variant="ghost" size="icon-sm" onClick={onBack} aria-label="返回工作区" title="返回工作区"><ArrowLeft size={14} /></Button>
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5"><Settings size={14} className="text-[var(--text-tertiary)]" /><span className="text-[var(--font-size-12-5)] font-medium">设置</span></div>
           <div className="flex items-center gap-2">
             <RuntimeBadge isTauri={isTauri} compact />
             <Button type="button" variant="ghost" size="sm" onClick={() => { onReset(); saveIndicator(); }}><RotateCcw size={13} />恢复默认</Button>
@@ -91,20 +100,30 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
               <NumberSetting label="字体大小" description="只调整文字，不改变按钮和面板的固定尺寸。" value={settings.fontSize} min={11} max={16} step={0.5} onChange={(value) => { change("fontSize", value); saveIndicator(); }} />
               <NumberSetting label="容器内边距" description="统一调整页面、面板和内容区域的留白。" value={settings.containerPadding} min={8} max={20} step={1} onChange={(value) => { change("containerPadding", value); saveIndicator(); }} />
               <NumberSetting label="统一圆角" description="同时调整按钮、输入框、面板和弹层的圆角尺度。" value={settings.cornerRadius} min={0} max={14} step={1} onChange={(value) => { change("cornerRadius", value); saveIndicator(); }} />
-              <NumberSetting label="背景透明度" description="调整窗口各层背景的透明程度，文字与图标保持完整不透明。" value={settings.backgroundOpacity} min={0.72} max={1} step={0.01} scale={100} onChange={(value) => { change("backgroundOpacity", value); saveIndicator(); }} />
+              <NumberSetting label="背景透明度" description="调整窗口与内容面板透明度；菜单和弹窗保留可读性。" value={settings.backgroundOpacity} min={0.2} max={1} step={0.01} scale={100} onChange={(value) => { change("backgroundOpacity", value); saveIndicator(); }} />
             </SettingsGroup>
           </SettingsSection>
 
           <SettingsSection title="看板娘" description="会话背景角色。">
-            <SettingsGroup><SettingRow label="显示看板娘" description="在会话背景显示当前角色"><Switch aria-label="显示看板娘" checked={settings.mascotEnabled} onCheckedChange={(value) => { change("mascotEnabled", value); saveIndicator(); }} /></SettingRow><SettingRow label="动画" description="启用轻微的呼吸动作"><Switch aria-label="动画" checked={settings.mascotMotion} onCheckedChange={(value) => { change("mascotMotion", value); saveIndicator(); }} /></SettingRow></SettingsGroup>
-            <div className="mt-3 grid gap-3 min-[680px]:grid-cols-[172px_minmax(0,1fr)]">
-              <div className="relative flex h-[246px] items-end justify-center overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-window)] px-3 pt-5">
+            <SettingsGroup>
+              <SettingRow label="显示看板娘" description="在会话背景显示当前角色"><Switch aria-label="显示看板娘" checked={settings.mascotEnabled} onCheckedChange={(value) => { change("mascotEnabled", value); saveIndicator(); }} /></SettingRow>
+              <SettingRow label="动画" description="启用轻微的呼吸动作"><Switch aria-label="动画" checked={settings.mascotMotion} onCheckedChange={(value) => { change("mascotMotion", value); saveIndicator(); }} /></SettingRow>
+              <SettingRow label="图片源" description={activeMascotSource.description}>
+                <ToggleGroup type="single" value={settings.mascotSource} onValueChange={(value) => { if (!value) return; updateMascotSource(value as MascotSource); }} className="grid w-full grid-cols-2 gap-0.5 rounded-[var(--radius-sm)] bg-[var(--bg-window)] p-0.5" spacing={2}>
+                  {MASCOT_SOURCE_OPTIONS.map((option) => <ToggleGroupItem type="button" key={option.value} value={option.value} aria-label={option.label} title={option.description} className="h-7 w-full px-2 text-[var(--font-size-10)] data-[state=on]:bg-[var(--accent-tint)]">{option.label}</ToggleGroupItem>)}
+                </ToggleGroup>
+              </SettingRow>
+              {settings.mascotSource === "customUrl" && <SettingRow label="图片地址" description={invalidMascotUrl ? "请输入有效的 HTTPS 图片地址" : "支持静态图片和直接返回图片的接口"}><Input aria-label="看板娘图片地址" aria-invalid={invalidMascotUrl} value={settings.mascotImageUrl} onChange={(event) => change("mascotImageUrl", event.currentTarget.value)} onBlur={saveIndicator} placeholder="https://example.com/mascot.png" spellCheck={false} className="w-full font-mono text-[var(--font-size-10)]" /></SettingRow>}
+            </SettingsGroup>
+            <div className="mt-3 grid gap-3">
+              <div className="relative flex aspect-video w-full items-center justify-end overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-window)]">
                 <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between px-3 py-2 text-[var(--font-size-10)] text-[var(--text-tertiary)]"><span>当前角色</span><span className={settings.mascotEnabled ? "text-[var(--success)]" : "text-[var(--text-tertiary)]"}>{settings.mascotEnabled ? "显示" : "关闭"}</span></div>
-                <Mascot style={settings.mascotStyle} motion={settings.mascotMotion} className={cn("h-[220px] w-full object-bottom transition-opacity", !settings.mascotEnabled && "opacity-45")} />
+                <Mascot style={settings.mascotStyle} source={settings.mascotSource} customUrl={settings.mascotImageUrl} motion={settings.mascotMotion} className={cn("h-full w-full object-contain object-right transition-opacity", !settings.mascotEnabled && "opacity-45")} />
+                {settings.mascotSource === "customUrl" && !customMascotUrl && <span className="absolute inset-x-3 bottom-16 text-center text-[var(--font-size-10)] text-[var(--text-tertiary)]">等待有效的 HTTPS 图片地址</span>}
               </div>
-              <ToggleGroup type="single" value={settings.mascotStyle} onValueChange={(value) => { if (!value) return; change("mascotStyle", value as AppSettings["mascotStyle"]); saveIndicator(); }} className="grid w-full grid-cols-3 gap-1.5" spacing={6}>
-                {MASCOT_OPTIONS.map((option) => <MascotOption key={option.value} option={option} active={settings.mascotStyle === option.value} />)}
-              </ToggleGroup>
+              {visibleMascots.length > 0 && <ToggleGroup type="single" value={settings.mascotStyle} onValueChange={(value) => { if (!value) return; change("mascotStyle", value as AppSettings["mascotStyle"]); saveIndicator(); }} className="grid w-full grid-cols-3 gap-1.5" spacing={6}>
+                {visibleMascots.map((option) => <MascotOption key={option.value} option={option} active={settings.mascotStyle === option.value} />)}
+              </ToggleGroup>}
             </div>
           </SettingsSection>
 
@@ -133,7 +152,7 @@ function SettingRow({ label, description, children }: { label: string; descripti
 }
 
 function MascotOption({ option, active }: { option: (typeof MASCOT_OPTIONS)[number]; active: boolean }) {
-  return <ToggleGroupItem type="button" value={option.value} aria-label={`${option.label} ${option.description}`} title={option.description} className={cn("group flex min-h-[118px] w-full flex-col justify-between overflow-hidden rounded-[var(--radius-sm)] border p-0 text-left transition-[background-color,border-color] active:scale-[0.98]", active ? "border-[var(--accent-border)] bg-[var(--accent-tint)]" : "border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]")}><span className="flex h-[88px] w-full items-end justify-center overflow-hidden bg-[var(--bg-window)] px-1.5 pt-1.5"><img src={mascotImageFor(option.value)} alt="" aria-hidden="true" loading="lazy" className="h-[94px] w-full object-contain object-bottom transition-transform duration-[var(--motion-base)] group-hover:scale-[1.025]" draggable="false" /></span><span className="flex h-7 w-full items-center justify-between px-2"><span className="truncate text-[var(--font-size-10)] text-[var(--text-primary)]">{option.label}</span>{active && <Check size={11} className="text-[var(--accent)]" />}</span></ToggleGroupItem>;
+  return <ToggleGroupItem type="button" value={option.value} aria-label={`${option.label} ${option.description}`} title={option.description} className={cn("group flex min-h-[118px] w-full flex-col justify-between overflow-hidden rounded-[var(--radius-sm)] border p-0 text-left transition-[background-color,border-color] active:scale-[0.98]", active ? "border-[var(--accent-border)] bg-[var(--accent-tint)]" : "border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]")}><span className="flex h-[88px] w-full items-end justify-center overflow-hidden bg-[var(--bg-window)] px-1.5 pt-1.5"><img src={mascotImageFor(option.value) ?? ""} alt="" aria-hidden="true" loading="lazy" className="h-[94px] w-full object-contain object-bottom transition-transform duration-[var(--motion-base)] group-hover:scale-[1.025]" draggable="false" /></span><span className="flex h-7 w-full items-center gap-1 px-2"><span className="min-w-0 flex-1 truncate text-[var(--font-size-10)] text-[var(--text-primary)]">{option.label}</span>{active && <Check size={11} className="shrink-0 text-[var(--accent)]" />}</span></ToggleGroupItem>;
 }
 
 function fontPreviewFamily(font: FontFamilyPreference) {

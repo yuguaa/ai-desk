@@ -30,10 +30,12 @@ describe("Terminal", () => {
     });
 
     const content = container?.querySelector<HTMLElement>('[data-slot="terminal-content"]');
+    expect(content?.className).toContain("flex-col-reverse");
     Object.defineProperties(content, {
       clientHeight: { configurable: true, value: 100 },
       scrollHeight: { configurable: true, value: 1000 },
-      scrollTop: { configurable: true, writable: true, value: 120 },
+      // 反向布局下上滑查看历史 scrollTop 为负值
+      scrollTop: { configurable: true, writable: true, value: -120 },
     });
 
     await act(async () => {
@@ -42,7 +44,7 @@ describe("Terminal", () => {
       await Promise.resolve();
     });
 
-    expect(content?.scrollTop).toBe(120);
+    expect(content?.scrollTop).toBe(-120);
   });
 
   it("复制成功后更新按钮的辅助文本", async () => {

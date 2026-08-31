@@ -20,9 +20,9 @@ describe("Pi model presentation", () => {
   });
 
   it("formats context usage for the composer footer", () => {
-    expect(contextUsageLabel({ tokens: 0, contextWindow: 1_000_000, percent: 0 })).toBe("上下文 0/1M · 0%");
-    expect(contextUsageLabel({ tokens: 60_000, contextWindow: 200_000, percent: 30 })).toBe("上下文 60K/200K · 30%");
-    expect(contextUsageLabel({ tokens: null, contextWindow: 1_000_000, percent: null })).toBe("上下文 --/1M · --");
-    expect(contextUsageLabel(null)).toBe("上下文 --");
+    expect(contextUsageLabel({ tokens: 0, contextWindow: 1_000_000, percent: 0 })).toBe("0/1M · 0%");
+    expect(contextUsageLabel({ tokens: 60_000, contextWindow: 200_000, percent: 30 })).toBe("60K/200K · 30%");
+    expect(contextUsageLabel({ tokens: null, contextWindow: 1_000_000, percent: null })).toBe("--/1M · --");
+    expect(contextUsageLabel(null)).toBe("--");
   });
 });

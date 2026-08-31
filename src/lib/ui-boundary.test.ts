@@ -77,6 +77,32 @@ describe("UI primitive boundary", () => {
     expect(controlDefaults).not.toMatch(/color\s*:/);
   });
 
+  it("keeps window, content surfaces, and floating overlays on separate opacity tiers", () => {
+    expect(styleSource).toContain("--background-opacity: 1");
+    expect(styleSource).toContain("--surface-opacity: 1");
+    expect(styleSource).toContain("--popover-opacity: 1");
+    expect(styleSource).toMatch(/--bg-window:\s*rgb\([^;]+var\(--background-opacity\)\)/);
+    expect(styleSource).toMatch(/--bg-surface:\s*rgb\([^;]+var\(--surface-opacity\)\)/);
+    expect(styleSource).toMatch(/--bg-popover:\s*rgb\([^;]+var\(--popover-opacity\)\)/);
+    expect(sourceFiles["../components/ai-elements/prompt-input.tsx"]).toContain("bg-[var(--bg-popover)]");
+    expect(sourceFiles["../components/ui/select.tsx"]).toContain("bg-[var(--bg-popover)]");
+    expect(sourceFiles["../components/ui/context-menu.tsx"]).toContain("bg-[var(--bg-popover)]");
+    expect(sourceFiles["../components/ui/tooltip.tsx"]).toContain("bg-[var(--bg-popover)]");
+  });
+
+  it("owns the mascot at the global app background boundary", () => {
+    expect(sourceFiles["../App.tsx"]).toContain("mascot-global-background");
+    expect(sourceFiles["../App.tsx"]).toContain('data-slot="app-shell"');
+    expect(sourceFiles["../App.tsx"]).toContain("object-cover");
+    expect(sourceFiles["../App.tsx"]).toContain("object-right");
+    expect(sourceFiles["../App.tsx"]).toContain("absolute -inset-1 z-0");
+    expect(sourceFiles["../App.tsx"]).toContain('className="relative z-10 h-full"');
+    expect(sourceFiles["../App.tsx"]).not.toContain("object-contain");
+    expect(sourceFiles["../components/chat/ChatPanel.tsx"]).not.toContain("<Mascot");
+    expect(styleSource).toContain(".mascot-global-background");
+    expect(styleSource).not.toContain(".mascot-backdrop");
+  });
+
   it("keeps typography scalable and interactive cursors explicit", () => {
     const hardcodedTypography = Object.entries(sourceFiles).flatMap(([file, source]) => /text-(?:\[[0-9.]+px\]|xs\b|sm\b|base\b|lg\b|xl\b)/.test(source) ? [file] : []);
     const defaultCursor = Object.entries(sourceFiles).flatMap(([file, source]) => source.includes("cursor-default") ? [file] : []);

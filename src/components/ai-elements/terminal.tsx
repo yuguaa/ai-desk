@@ -5,7 +5,15 @@ import type { ComponentProps, HTMLAttributes, UIEvent as ReactUIEvent } from "re
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Check, Copy, Terminal as TerminalIcon, Trash2 } from "@/components/ui/icons";
+import { useFollowLatestOutput } from "@/hooks/use-follow-latest-output";
 import { cn } from "@/lib/utils";
+
+/**
+ * ansi-to-react 通过 CJS 的 exports.default 发布。
+ * Vite 8 浏览器运行时会保留 module.exports，这里统一为 React 组件。
+ */
+const ansiModule = Ansi as typeof Ansi & { default?: typeof Ansi };
+const AnsiComponent = ansiModule.default ?? ansiModule;
 
 interface TerminalContextType {
   output: string;
@@ -19,8 +27,6 @@ const TerminalContext = createContext<TerminalContextType>({
   isStreaming: false,
   output: "",
 });
-
-const TERMINAL_SCROLL_THRESHOLD = 24;
 
 export type TerminalHeaderProps = HTMLAttributes<HTMLDivElement>;
 
@@ -39,7 +45,7 @@ export type TerminalStatusProps = HTMLAttributes<HTMLDivElement>;
 export function TerminalStatus({ className, children, ...props }: TerminalStatusProps) {
   const { isStreaming } = useContext(TerminalContext);
   if (!isStreaming) return null;
-  return <div aria-live="polite" data-slot="terminal-status" role="status" className={cn("flex items-center gap-1.5 text-[var(--font-size-9-5)] text-[var(--text-tertiary)]", className)} {...props}>{children ?? "运行中"}</div>;
+  return <div aria-live="polite" data-slot="terminal-status" role="status" className={cn("flex items-center gap-1.5 text-[var(--font-size-9-5)] leading-none text-[var(--text-tertiary)]", className)} {...props}>{children ?? "运行中"}</div>;
 }
 
 export type TerminalActionsProps = HTMLAttributes<HTMLDivElement>;
@@ -92,22 +98,16 @@ export type TerminalContentProps = HTMLAttributes<HTMLDivElement>;
 
 export function TerminalContent({ className, children, onScroll, ...props }: TerminalContentProps) {
   const { output, isStreaming, autoScroll } = useContext(TerminalContext);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isFollowingOutputRef = useRef(true);
-
-  useEffect(() => {
-    if (autoScroll && isFollowingOutputRef.current && containerRef.current) containerRef.current.scrollTop = containerRef.current.scrollHeight;
-  }, [autoScroll, output]);
+  const { containerRef, updateFollowState } = useFollowLatestOutput<HTMLDivElement>(output, autoScroll, true);
 
   const handleScroll = (event: ReactUIEvent<HTMLDivElement>) => {
-    const container = event.currentTarget;
-    isFollowingOutputRef.current = container.scrollHeight - container.scrollTop - container.clientHeight <= TERMINAL_SCROLL_THRESHOLD;
+    updateFollowState(event.currentTarget);
     onScroll?.(event);
   };
 
   return (
-    <div data-slot="terminal-content" className={cn("max-h-64 overflow-auto px-2.5 py-2 font-mono text-[var(--font-size-11)] leading-5 text-[var(--text-secondary)]", className)} onScroll={handleScroll} ref={containerRef} {...props}>
-      {children ?? <pre className="min-w-max whitespace-pre"><Ansi useClasses>{output}</Ansi>{isStreaming ? <span aria-hidden="true" className="ml-0.5 inline-block h-3.5 w-1.5 bg-[var(--text-primary)] motion-safe:animate-pulse" /> : null}</pre>}
+    <div data-slot="terminal-content" className={cn("flex max-h-64 flex-col-reverse overflow-auto px-2.5 py-2 font-mono text-[var(--font-size-11)] leading-5 text-[var(--text-secondary)]", className)} onScroll={handleScroll} ref={containerRef} {...props}>
+      {children ?? <pre className="min-w-max shrink-0 whitespace-pre"><AnsiComponent useClasses>{output}</AnsiComponent>{isStreaming ? <span aria-hidden="true" className="ml-0.5 inline-block h-3.5 w-1.5 bg-[var(--text-primary)] motion-safe:animate-pulse" /> : null}</pre>}
     </div>
   );
 }

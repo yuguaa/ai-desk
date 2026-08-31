@@ -53,7 +53,7 @@ export function MessageResponse({ children, isAnimating = false }: { children: s
         mermaid: false,
         image: false,
       }}
-      className="streamdown-message text-pretty"
+      className={cn("streamdown-message text-pretty", isAnimating && "streamdown-message-streaming")}
     >
       {children}
     </Streamdown>

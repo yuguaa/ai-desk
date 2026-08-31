@@ -9,9 +9,8 @@ import { WorkspaceSidebar } from "@/components/workspace/WorkspaceSidebar";
 import { useConversationChanges } from "@/hooks/use-conversation-changes";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useWorkspaceInspector } from "@/hooks/use-workspace-inspector";
-import type { AppSettings } from "@/lib/app-settings";
 
-export default function WorkspacePage({ settings, onOpenSettings }: { settings: AppSettings; onOpenSettings: () => void }) {
+export default function WorkspacePage({ onOpenSettings }: { onOpenSettings: () => void }) {
   const workspace = useWorkspace();
   const inspector = useWorkspaceInspector(workspace.activeProject.path);
   const conversationChanges = useConversationChanges(workspace.activeProject.path, workspace.activeConversationId, workspace.activeTurnIndexes);
@@ -64,6 +63,7 @@ export default function WorkspacePage({ settings, onOpenSettings }: { settings: 
         <main className="workspace-main flex h-full min-w-0 flex-col">
           <WorkspaceHeader project={workspace.activeProject} conversation={workspace.activeConversation} />
           <ChatPanel
+            conversationId={workspace.activeConversationId}
             timeline={workspace.timeline}
             draft={workspace.draft}
             isBusy={isBusy}
@@ -82,7 +82,6 @@ export default function WorkspacePage({ settings, onOpenSettings }: { settings: 
             onSteerQueuedTurn={workspace.steerQueuedTurn}
             onEditQueuedTurn={workspace.editQueuedTurn}
             turnChanges={conversationChanges.changesByTurn}
-            settings={settings}
             onDraftChange={workspace.setDraft}
             onSend={sendMessage}
             onAbort={workspace.abortConversation}
