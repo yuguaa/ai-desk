@@ -150,3 +150,12 @@ jobs:
           generateReleaseNotes: true
           uploadWorkflowArtifacts: true
           args: ${{ matrix.args }}
+
+      - name: 验证签名后的 Pi sidecar
+        if: startsWith(matrix.platform, 'macos-')
+        shell: bash
+        run: |
+          app_path="src-tauri/target/release/bundle/macos/ai-desk.app"
+          expected_version=$(cat src-tauri/pi-runtime-version.txt)
+          actual_version=$(PI_PACKAGE_DIR="$app_path/Contents/Resources/pi-runtime" "$app_path/Contents/MacOS/pi" --version)
+          test "$actual_version" = "$expected_version"

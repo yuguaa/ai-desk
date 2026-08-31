@@ -249,6 +249,19 @@ body {
 }
 
 /*
+ * 消息区保留滚轮与触控板滚动，但不让原生滚动槽压缩共享内容列。
+ * 输入框不在滚动视口内，隐藏滚动槽后两者才能始终使用同一可用宽度。
+ */
+.conversation-scroll-area {
+  scrollbar-width: none;
+}
+
+.conversation-scroll-area::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/*
  * 依据中间工作区的实际宽度连续调整消息流和输入器，
  * 避免侧栏调整后仅按窗口宽度误判。
  */

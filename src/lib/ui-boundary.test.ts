@@ -58,6 +58,11 @@ describe("UI primitive boundary", () => {
     expect(styleSource).toMatch(/\.panel-scroll-area[^}]+display:\s*block\s*!important;[^}]+width:\s*100%;[^}]+min-width:\s*0\s*!important;/s);
   });
 
+  it("keeps the conversation scrollbar from consuming the shared content column width", () => {
+    expect(styleSource).toMatch(/\.conversation-scroll-area\s*\{[^}]*scrollbar-width:\s*none;/s);
+    expect(styleSource).toMatch(/\.conversation-scroll-area::-webkit-scrollbar\s*\{[^}]*width:\s*0;/s);
+  });
+
   it("uses configurable padding tokens in major layout sources", () => {
     const violations = Object.entries(majorLayoutPaddingTokens).flatMap(([file, tokens]) => {
       const source = sourceFiles[file] ?? "";
