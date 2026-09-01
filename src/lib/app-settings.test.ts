@@ -34,27 +34,27 @@ describe("app settings", () => {
   });
 
   it("persists valid appearance and mascot preferences while rejecting invalid values", () => {
-    storage.set(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: "light", accentColor: "custom", customAccentColor: "#abc", cornerRadius: 11, backgroundOpacity: 0.34, fontFamily: "geist", fontSize: 14.5, containerPadding: 16, mascotEnabled: true, mascotSource: "builtIn", mascotImageUrl: " https://example.com/mascot.png ", mascotStyle: "glamourManga", mascotMotion: false }));
-    expect(loadAppSettings()).toMatchObject({ theme: "light", accentColor: "custom", customAccentColor: "#aabbcc", cornerRadius: 11, backgroundOpacity: 0.34, fontFamily: "geist", fontSize: 14.5, containerPadding: 16, mascotEnabled: true, mascotSource: "builtIn", mascotImageUrl: "https://example.com/mascot.png", mascotStyle: "glamourManga", mascotMotion: false });
+    storage.set(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: "light", accentColor: "custom", customAccentColor: "#abc", cornerRadius: 11, backgroundOpacity: 0.34, fontFamily: "geist", fontSize: 14.5, containerPadding: 16, mascotEnabled: true, mascotSource: "builtIn", mascotImageUrl: " https://example.com/mascot.png ", mascotStyle: "silverLounge", mascotMotion: false }));
+    expect(loadAppSettings()).toMatchObject({ theme: "light", accentColor: "custom", customAccentColor: "#aabbcc", cornerRadius: 11, backgroundOpacity: 0.34, fontFamily: "geist", fontSize: 14.5, containerPadding: 16, mascotEnabled: true, mascotSource: "builtIn", mascotImageUrl: "https://example.com/mascot.png", mascotStyle: "silverLounge", mascotMotion: false });
 
     storage.set(SETTINGS_STORAGE_KEY, JSON.stringify({ theme: "neon", accentColor: "missing", customAccentColor: "oops", cornerRadius: "round", backgroundOpacity: 4, fontFamily: "comic", fontSize: "large", containerPadding: "wide", mascotSource: "unknown", mascotStyle: "engineer", mascotEnabled: "yes" }));
     expect(loadAppSettings()).toEqual(DEFAULT_APP_SETTINGS);
   });
 
   it("exposes a compact mixed built-in library and a configurable URL source", () => {
-    expect(MASCOT_OPTIONS).toHaveLength(7);
+    expect(MASCOT_OPTIONS).toHaveLength(6);
     expect(MASCOT_SOURCE_OPTIONS).toHaveLength(2);
     expect(MASCOT_OPTIONS.map((option) => option.value)).toContain("scarletPose");
     expect(MASCOT_OPTIONS.map((option) => option.value)).toContain("beachAnime");
     expect(MASCOT_OPTIONS.map((option) => option.value)).toContain("silverLounge");
-    expect(MASCOT_OPTIONS.map((option) => option.value)).toContain("glamourManga");
+    expect(MASCOT_OPTIONS.map((option) => option.value)).not.toContain("glamourManga");
     expect(MASCOT_OPTIONS.map((option) => option.value)).not.toContain("engineer");
     expect(MASCOT_OPTIONS.map((option) => option.value)).not.toContain("libraryMuse");
   });
 
   it("persists a custom URL source independently from the built-in selection", () => {
-    storage.set(SETTINGS_STORAGE_KEY, JSON.stringify({ mascotSource: "customUrl", mascotStyle: "glamourManga", mascotImageUrl: "https://example.com/a.png" }));
-    expect(loadAppSettings()).toMatchObject({ mascotSource: "customUrl", mascotStyle: "glamourManga", mascotImageUrl: "https://example.com/a.png" });
+    storage.set(SETTINGS_STORAGE_KEY, JSON.stringify({ mascotSource: "customUrl", mascotStyle: "silverLounge", mascotImageUrl: "https://example.com/a.png" }));
+    expect(loadAppSettings()).toMatchObject({ mascotSource: "customUrl", mascotStyle: "silverLounge", mascotImageUrl: "https://example.com/a.png" });
   });
 
   it("clamps loaded container padding to the supported range", () => {

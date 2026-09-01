@@ -27,7 +27,7 @@ describe("SettingsPage", () => {
     expect(html).toContain("沙滩丽人");
     expect(html).toContain("银发魅姬");
     expect(html).toContain("银发闲憩");
-    expect(html).toContain("魅惑御姐");
+    expect(html).not.toContain("魅惑御姐");
     expect(html).not.toContain("工程师");
     expect((html.match(/data-slot="switch"/g) ?? []).length).toBe(2);
     expect((html.match(/data-slot="input-number"/g) ?? []).length).toBe(4);
@@ -35,7 +35,7 @@ describe("SettingsPage", () => {
     expect(html).toMatch(/aria-label="容器内边距"[^>]*min="8"[^>]*max="20"[^>]*step="1"/);
     expect((html.match(/data-slot="select-trigger"/g) ?? []).length).toBe(1);
     expect((html.match(/data-slot="toggle-group"/g) ?? []).length).toBe(4);
-    expect((html.match(/data-slot="toggle-group-item"/g) ?? []).length).toBe(21);
+    expect((html.match(/data-slot="toggle-group-item"/g) ?? []).length).toBe(20);
     expect(html).not.toContain("inset_0_-2px_0_var(--accent)");
     expect(html).toContain('data-slot="titlebar-drag-region"');
     expect(html).toContain('data-slot="settings-titlebar-actions"');

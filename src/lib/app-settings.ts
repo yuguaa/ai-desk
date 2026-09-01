@@ -10,7 +10,6 @@ export const MASCOT_OPTIONS = [
   { value: "midnightPose", label: "午夜魅影", description: "暗色成熟造型" },
   { value: "silverPose", label: "银发魅姬", description: "银发性感姿态" },
   { value: "silverLounge", label: "银发闲憩", description: "银发沙发休憩造型" },
-  { value: "glamourManga", label: "魅惑御姐", description: "成熟魅惑动漫人像" },
 ] as const;
 
 export type MascotStyle = (typeof MASCOT_OPTIONS)[number]["value"];

@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { normalizeMascotImageUrl, type MascotSource, type MascotStyle } from "@/lib/app-settings";
 import beachAnimeImage from "@/assets/mascot/pixabay-anime/beach-anime.jpg";
-import glamourMangaImage from "@/assets/mascot/pixabay-anime/glamour-manga.jpg";
 import midnightPoseImage from "@/assets/mascot/pixabay-anime/midnight-pose.jpg";
 import scarletPoseImage from "@/assets/mascot/pixabay-anime/scarlet-pose.jpg";
 import silverLoungeImage from "@/assets/mascot/user-provided/silver-lounge.jpg";
@@ -15,7 +14,6 @@ const mascotImages: Record<MascotStyle, string> = {
   midnightPose: midnightPoseImage,
   silverPose: silverPoseImage,
   silverLounge: silverLoungeImage,
-  glamourManga: glamourMangaImage,
 };
 
 export function mascotImageFor(style: MascotStyle, source: MascotSource = "builtIn", customUrl = "") {

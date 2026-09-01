@@ -1,6 +1,6 @@
 [package]
 name = "ai-desk"
-version = "0.1.9"
+version = "0.1.10"
 description = "A local desktop UI for pi-coding-agent"
 authors = ["pine-storm"]
 edition = "2021"
