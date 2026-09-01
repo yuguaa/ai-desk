@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, Check, Monitor, Moon, RotateCcw, Settings, Sun } from "@/components/ui/icons";
+import { getVersion } from "@tauri-apps/api/app";
+import { ArrowLeft, Check, LoaderCircle, Monitor, Moon, RefreshCw, RotateCcw, Settings, Sun, TriangleAlert } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { ColorInput } from "@/components/ui/color-input";
 import { Input } from "@/components/ui/input";
@@ -9,15 +10,24 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RuntimeBadge } from "@/components/workspace/RuntimeBadge";
 import { mascotImageFor, Mascot } from "@/components/mascot/Mascot";
+import { checkForAppUpdate } from "@/lib/app-update";
 import { ACCENT_OPTIONS, FONT_OPTIONS, MASCOT_OPTIONS, MASCOT_SOURCE_OPTIONS, normalizeHexColor, normalizeMascotImageUrl, THEME_OPTIONS, type AccentColor, type AppSettings, type FontFamilyPreference, type MascotSource, type ThemePreference } from "@/lib/app-settings";
 import { isMacTauriRuntime } from "@/lib/pi-bridge";
 import { cn } from "@/lib/utils";
 
 const themeIcons: Record<ThemePreference, typeof Monitor> = { system: Monitor, dark: Moon, light: Sun };
+type UpdateCheckState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "latest"; latestVersion: string }
+  | { status: "available"; latestVersion: string }
+  | { status: "error" };
 
 export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onReset }: { settings: AppSettings; isTauri: boolean; onBack: () => void; onUpdate: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void; onReset: () => void }) {
   const [saved, setSaved] = useState(false);
   const [customHex, setCustomHex] = useState(settings.customAccentColor);
+  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheckState>({ status: "idle" });
   const immersive = isMacTauriRuntime();
   const customMascotUrl = normalizeMascotImageUrl(settings.mascotImageUrl);
   const invalidMascotUrl = settings.mascotImageUrl.length > 0 && !customMascotUrl;
@@ -25,6 +35,14 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
   const activeMascotSource = MASCOT_SOURCE_OPTIONS.find((option) => option.value === settings.mascotSource) ?? MASCOT_SOURCE_OPTIONS[0];
 
   useEffect(() => setCustomHex(settings.customAccentColor), [settings.customAccentColor]);
+  useEffect(() => {
+    let active = true;
+    if (!isTauri) return () => { active = false; };
+    getVersion()
+      .then((version) => { if (active) setCurrentVersion(version); })
+      .catch(() => { if (active) setUpdateCheck({ status: "error" }); });
+    return () => { active = false; };
+  }, [isTauri]);
 
   const change = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     onUpdate(key, value);
@@ -47,6 +65,18 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
     change("mascotSource", source);
     saveIndicator();
   };
+
+  const checkUpdate = () => {
+    if (!currentVersion || updateCheck.status === "checking") return;
+    setUpdateCheck({ status: "checking" });
+    checkForAppUpdate(currentVersion)
+      .then((result) => setUpdateCheck(result.updateAvailable
+        ? { status: "available", latestVersion: result.latestVersion }
+        : { status: "latest", latestVersion: result.latestVersion }))
+      .catch(() => setUpdateCheck({ status: "error" }));
+  };
+
+  const updatePresentation = appUpdatePresentation(isTauri, currentVersion, updateCheck);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-workspace)] text-[var(--text-primary)]">
@@ -127,12 +157,54 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
             </div>
           </SettingsSection>
 
-          <SettingsSection title="运行" description="本应用通过 Tauri 原生窗口连接本机 Pi。"><SettingsGroup><SettingRow label="运行时" description="每个对话拥有独立的 Pi 进程，可同时运行"><RuntimeBadge isTauri={isTauri} compact /></SettingRow><SettingRow label="配置存储" description="外观与看板娘偏好保存在本机应用存储"><span className="font-mono text-[var(--font-size-10)] text-[var(--text-tertiary)]">local</span></SettingRow></SettingsGroup></SettingsSection>
+          <SettingsSection title="运行" description="本应用通过 Tauri 原生窗口连接本机 Pi。">
+            <SettingsGroup>
+              <SettingRow label="运行时" description="每个对话拥有独立的 Pi 进程，可同时运行"><RuntimeBadge isTauri={isTauri} compact /></SettingRow>
+              <SettingRow label="配置存储" description="外观与看板娘偏好保存在本机应用存储"><span className="font-mono text-[var(--font-size-10)] text-[var(--text-tertiary)]">local</span></SettingRow>
+              <SettingRow label="应用版本" description="手动检查 GitHub 已发布版本">
+                <div className="flex w-full flex-col items-end gap-1">
+                  <div className="flex items-center justify-end gap-2">
+                    <span data-slot="current-app-version" className="min-w-16 text-right font-mono text-[var(--font-size-10-5)] tabular-nums text-[var(--text-secondary)]">{currentVersion ? `v${currentVersion}` : "—"}</span>
+                    <Button type="button" variant="outline" size="sm" aria-label="检查应用更新" className="w-24" disabled={!isTauri || !currentVersion || updateCheck.status === "checking"} onClick={checkUpdate}>
+                      {updateCheck.status === "checking" ? <LoaderCircle size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                      {updateCheck.status === "checking" ? "检查中" : "检查更新"}
+                    </Button>
+                  </div>
+                  <div role="status" aria-live="polite" className={cn("flex min-h-4 items-center gap-1 text-right text-[var(--font-size-9-5)]", updatePresentation.tone)}>
+                    {updateCheck.status === "latest" && <Check size={11} />}
+                    {updateCheck.status === "available" && <RefreshCw size={11} />}
+                    {updateCheck.status === "error" && <TriangleAlert size={11} />}
+                    <span>{updatePresentation.message}</span>
+                  </div>
+                </div>
+              </SettingRow>
+            </SettingsGroup>
+          </SettingsSection>
           {saved && <div role="status" aria-live="polite" className="mt-4 flex items-center gap-2 text-[var(--font-size-11)] text-[var(--success)]"><Check size={13} />设置已更新</div>}
         </div>
       </div>
     </div>
   );
+}
+
+function appUpdatePresentation(isTauri: boolean, currentVersion: string | null, state: UpdateCheckState) {
+  if (!isTauri) return { message: "仅桌面安装版支持检测更新", tone: "text-[var(--text-tertiary)]" };
+  if (!currentVersion) return state.status === "error"
+    ? { message: "无法读取当前应用版本", tone: "text-[var(--error)]" }
+    : { message: "正在读取当前版本…", tone: "text-[var(--text-tertiary)]" };
+
+  switch (state.status) {
+    case "checking":
+      return { message: "正在检查更新…", tone: "text-[var(--text-tertiary)]" };
+    case "available":
+      return { message: `发现新版本 v${state.latestVersion}`, tone: "text-[var(--accent)]" };
+    case "latest":
+      return { message: `当前已是最新版本（v${state.latestVersion}）`, tone: "text-[var(--success)]" };
+    case "error":
+      return { message: "检查更新失败，请稍后重试", tone: "text-[var(--error)]" };
+    default:
+      return { message: "点击按钮检查已发布版本", tone: "text-[var(--text-tertiary)]" };
+  }
 }
 
 function SettingsSection({ title, description, children }: { title: string; description: string; children: ReactNode }) {
