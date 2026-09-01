@@ -9,13 +9,14 @@ export const MASCOT_OPTIONS = [
   { value: "beachAnime", label: "沙滩丽人", description: "性感沙滩造型" },
   { value: "midnightPose", label: "午夜魅影", description: "暗色成熟造型" },
   { value: "silverPose", label: "银发魅姬", description: "银发性感姿态" },
+  { value: "silverLounge", label: "银发闲憩", description: "银发沙发休憩造型" },
   { value: "glamourManga", label: "魅惑御姐", description: "成熟魅惑动漫人像" },
 ] as const;
 
 export type MascotStyle = (typeof MASCOT_OPTIONS)[number]["value"];
 
 export const MASCOT_SOURCE_OPTIONS: ReadonlyArray<{ value: MascotSource; label: string; description: string }> = [
-  { value: "builtIn", label: "内置图库", description: "Pixabay 美女动漫图" },
+  { value: "builtIn", label: "内置图库", description: "内置美女动漫图" },
   { value: "customUrl", label: "自定义 URL", description: "使用 HTTPS 图片地址或图片接口" },
 ];
 

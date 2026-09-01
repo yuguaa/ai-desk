@@ -42,10 +42,11 @@ describe("app settings", () => {
   });
 
   it("exposes a compact mixed built-in library and a configurable URL source", () => {
-    expect(MASCOT_OPTIONS).toHaveLength(6);
+    expect(MASCOT_OPTIONS).toHaveLength(7);
     expect(MASCOT_SOURCE_OPTIONS).toHaveLength(2);
     expect(MASCOT_OPTIONS.map((option) => option.value)).toContain("scarletPose");
     expect(MASCOT_OPTIONS.map((option) => option.value)).toContain("beachAnime");
+    expect(MASCOT_OPTIONS.map((option) => option.value)).toContain("silverLounge");
     expect(MASCOT_OPTIONS.map((option) => option.value)).toContain("glamourManga");
     expect(MASCOT_OPTIONS.map((option) => option.value)).not.toContain("engineer");
     expect(MASCOT_OPTIONS.map((option) => option.value)).not.toContain("libraryMuse");

@@ -86,7 +86,7 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
         <div data-slot="settings-titlebar-actions" className="relative z-10 mx-auto flex w-full max-w-[760px] items-center justify-between px-[var(--container-padding-loose)]">
           <Button type="button" variant="ghost" size="icon-sm" onClick={onBack} aria-label="返回工作区" title="返回工作区"><ArrowLeft size={14} /></Button>
           <div className="flex items-center gap-2">
-            <RuntimeBadge isTauri={isTauri} compact />
+            <span className="hidden min-[460px]:inline-flex"><RuntimeBadge isTauri={isTauri} compact /></span>
             <Button type="button" variant="ghost" size="sm" onClick={() => { onReset(); saveIndicator(); }}><RotateCcw size={13} />恢复默认</Button>
           </div>
         </div>
