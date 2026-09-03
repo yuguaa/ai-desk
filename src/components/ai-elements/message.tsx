@@ -35,7 +35,7 @@ export function Message({
 }
 
 export function MessageContent({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn("max-w-[78ch] text-[var(--font-size-15)] leading-7", className)}>{children}</div>;
+  return <div className={cn("min-w-0 max-w-[78ch] break-words text-[var(--font-size-15)] leading-7", className)}>{children}</div>;
 }
 
 export function MessageResponse({ children, isAnimating = false }: { children: string; isAnimating?: boolean }) {
