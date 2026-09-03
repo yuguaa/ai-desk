@@ -1,52 +1,68 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkForAppUpdate } from "@/lib/app-update";
+
+const mocks = vi.hoisted(() => ({
+  check: vi.fn(),
+  relaunch: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: mocks.relaunch }));
+
+import { checkForAppUpdate, installAppUpdate } from "@/lib/app-update";
+import type { Update } from "@tauri-apps/plugin-updater";
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 
-describe("app update check", () => {
-  it("reports a newer published release", () => {
-    const request = vi.fn(() => Promise.resolve(releaseResponse("v0.1.7")));
-    vi.stubGlobal("fetch", request);
+describe("app update", () => {
+  it("检查到已发布的新版本", () => {
+    const update = { version: "0.1.7", downloadAndInstall: vi.fn() };
+    mocks.check.mockResolvedValue(update);
 
     return checkForAppUpdate("0.1.6").then((result) => {
       expect(result).toEqual({
         currentVersion: "0.1.6",
         latestVersion: "0.1.7",
         updateAvailable: true,
+        update,
       });
-      expect(request).toHaveBeenCalledWith(
-        "https://api.github.com/repos/yuguaa/ai-desk/releases/latest",
-        expect.objectContaining({ cache: "no-store", headers: expect.any(Object) }),
-      );
+      expect(mocks.check).toHaveBeenCalledOnce();
     });
   });
 
-  it.each(["0.1.6", "0.1.8"])("treats current version %s as up to date", (currentVersion) => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(releaseResponse("v0.1.6"))));
+  it("没有新版本时返回当前版本", () => {
+    mocks.check.mockResolvedValue(null);
 
-    return checkForAppUpdate(currentVersion).then((result) => {
-      expect(result.updateAvailable).toBe(false);
+    return checkForAppUpdate("0.1.6").then((result) => {
+      expect(result).toEqual({
+        currentVersion: "0.1.6",
+        latestVersion: "0.1.6",
+        updateAvailable: false,
+        update: null,
+      });
     });
   });
 
-  it("rejects a release with an invalid version tag", () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(releaseResponse("nightly"))));
+  it("安装更新后重新启动应用", () => {
+    const downloadAndInstall = vi.fn(() => Promise.resolve());
+    mocks.relaunch.mockResolvedValue(undefined);
 
-    return expect(checkForAppUpdate("0.1.6")).rejects.toThrow("最新版本信息格式无效");
+    return installAppUpdate({ version: "0.1.7", downloadAndInstall } as unknown as Update, () => undefined).then(() => {
+      expect(downloadAndInstall).toHaveBeenCalledOnce();
+      expect(mocks.relaunch).toHaveBeenCalledOnce();
+    });
   });
 
-  it("rejects a failed GitHub release request", () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(null, { status: 403 }))));
+  it("安装失败时不重新启动", () => {
+    const downloadAndInstall = vi.fn(() => Promise.reject(new Error("网络错误")));
+    mocks.relaunch.mockResolvedValue(undefined);
 
-    return expect(checkForAppUpdate("0.1.6")).rejects.toThrow("检查更新失败（HTTP 403）");
+    return installAppUpdate({ version: "0.1.7", downloadAndInstall } as unknown as Update, () => undefined)
+      .then(() => { throw new Error("应当抛出安装错误"); })
+      .catch((error) => {
+        expect(error.message).toBe("网络错误");
+        expect(mocks.relaunch).not.toHaveBeenCalled();
+      });
   });
 });
-
-function releaseResponse(tagName: string) {
-  return new Response(JSON.stringify({ tag_name: tagName }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}

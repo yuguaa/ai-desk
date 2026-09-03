@@ -70,6 +70,34 @@ GitHub Release；确认四个平台产物完整后再发布该 Release。构建�
 当前流程不包含 Apple Developer ID 或 Windows Authenticode 正式签名。
 macOS 使用临时签名，Windows 安装时可能显示未认证发布者提示。
 
+## 应用内更新
+
+桌面应用内置 Tauri updater，支持从已发布的 GitHub Release 检查并
+一键下载安装新版本。
+
+发布流程需要两个前置条件：
+
+1. 本地生成更新签名密钥：
+
+   ```bash
+   pnpm tauri signer generate -w ~/.tauri/ai-desk.key -p ""
+   ```
+
+   公钥已写入 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`。
+
+2. 在 GitHub 仓库 Secrets 中新增：
+
+   - `TAURI_SIGNING_PRIVATE_KEY`：值为 `~/.tauri/ai-desk.key` 的文件内容
+
+本地验证完整构建时，同样需要先导出该私钥：
+
+```bash
+export TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/ai-desk.key)"
+pnpm desktop:build
+```
+
+> 私钥一旦丢失就无法再对旧安装包签发更新，请妥善备份。
+
 ## 能力
 
 - 左侧项目与 Pi JSONL 会话树

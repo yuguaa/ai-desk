@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use notify::{recommended_watcher, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -8,8 +9,9 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use thiserror::Error;
 
@@ -116,6 +118,12 @@ pub struct GitStatus {
     pub files: Vec<GitFileStatus>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChanged {
+    pub cwd: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum GitAction {
@@ -197,6 +205,11 @@ struct PiProcessConfig {
 #[derive(Default)]
 struct PiProcessRegistry {
     processes: PiProcessMap,
+}
+
+#[derive(Default)]
+struct WorkspaceWatcherState {
+    watcher: Mutex<Option<RecommendedWatcher>>,
 }
 
 #[derive(Debug, Clone)]
@@ -1659,7 +1672,7 @@ fn capture_snapshot_tree(root: &Path) -> Result<String, AppError> {
 }
 
 fn branch_status(root: &Path) -> Result<ParsedGitStatus, AppError> {
-    let output = run_git_bytes(git_command(
+    let mut command = git_command(
         root,
         &[
             "status",
@@ -1668,7 +1681,9 @@ fn branch_status(root: &Path) -> Result<ParsedGitStatus, AppError> {
             "--branch",
             "--untracked-files=all",
         ],
-    ))?;
+    );
+    command.env("GIT_OPTIONAL_LOCKS", "0");
+    let output = run_git_bytes(command)?;
     parse_git_status_porcelain(&output)
 }
 
@@ -1724,6 +1739,28 @@ fn snapshot_status(root: &Path, baseline_tree: &str) -> Result<GitStatus, AppErr
         additions,
         deletions,
         files: files
+            .into_iter()
+            .map(|change| GitFileStatus {
+                path: change.path,
+                code: change.code,
+            })
+            .collect(),
+    })
+}
+
+fn porcelain_status(root: &Path) -> Result<GitStatus, AppError> {
+    let status = branch_status(root)?;
+    let baseline = resolve_head_tree(root)?.unwrap_or_else(|| EMPTY_TREE_HASH.to_owned());
+    let current_tree = capture_snapshot_tree(root)?;
+    let (additions, deletions) = diff_numstat_between_trees(root, &baseline, &current_tree)?;
+
+    Ok(GitStatus {
+        branch: status.branch,
+        clean: status.entries.is_empty(),
+        additions,
+        deletions,
+        files: status
+            .entries
             .into_iter()
             .map(|change| GitFileStatus {
                 path: change.path,
@@ -1814,8 +1851,7 @@ fn execute_git_action(root: &Path, action: GitAction) -> Result<(), AppError> {
 #[tauri::command]
 fn get_git_status(cwd: String) -> Result<GitStatus, String> {
     let root = workspace_root(&cwd)?;
-    let baseline = resolve_head_tree(&root)?.unwrap_or_else(|| EMPTY_TREE_HASH.to_owned());
-    snapshot_status(&root, &baseline).map_err(Into::into)
+    porcelain_status(&root).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -1862,10 +1898,125 @@ fn release_git_snapshot(cwd: String, snapshot: String) -> Result<(), String> {
     Ok(())
 }
 
+fn watch_path_relevant(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return true;
+    };
+    let mut components = relative.components();
+    let Some(first) = components.next() else {
+        return true;
+    };
+    let first = first.as_os_str().to_string_lossy().into_owned();
+    if first == ".git" {
+        let second = components
+            .next()
+            .map(|component| component.as_os_str().to_string_lossy().into_owned());
+        return match second.as_deref() {
+            Some("objects") => false,
+            Some("refs") => {
+                let third = components
+                    .next()
+                    .map(|component| component.as_os_str().to_string_lossy().into_owned());
+                third.as_deref() != Some("ai-desk")
+            }
+            Some("logs") => {
+                let third = components
+                    .next()
+                    .map(|component| component.as_os_str().to_string_lossy().into_owned());
+                if third.as_deref() == Some("refs") {
+                    let fourth = components
+                        .next()
+                        .map(|component| component.as_os_str().to_string_lossy().into_owned());
+                    fourth.as_deref() != Some("ai-desk")
+                } else {
+                    true
+                }
+            }
+            _ => true,
+        };
+    }
+    !ignored_workspace_directory(&first)
+}
+
+fn watch_event_relevant(root: &Path, event: &Event) -> bool {
+    if matches!(event.kind, EventKind::Access(_)) {
+        return false;
+    }
+    event.paths.iter().any(|path| watch_path_relevant(root, path))
+}
+
+fn spawn_workspace_watch(
+    app: AppHandle,
+    cwd: String,
+    root: PathBuf,
+    receiver: Receiver<notify::Result<Event>>,
+) {
+    std::thread::spawn(move || {
+        let mut pending = false;
+        loop {
+            match receiver.recv_timeout(Duration::from_millis(300)) {
+                Ok(Ok(event)) => {
+                    if watch_event_relevant(&root, &event) {
+                        pending = true;
+                    }
+                }
+                Ok(Err(_)) => {}
+                Err(RecvTimeoutError::Timeout) => {
+                    if pending {
+                        pending = false;
+                        let _ = app.emit("workspace-changed", WorkspaceChanged { cwd: cwd.clone() });
+                    }
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+}
+
+#[tauri::command]
+fn start_workspace_watch(
+    app: AppHandle,
+    state: State<'_, WorkspaceWatcherState>,
+    cwd: String,
+) -> Result<(), String> {
+    let root = workspace_root(&cwd)?;
+    let (tx, rx) = channel::<notify::Result<Event>>();
+    let mut watcher = recommended_watcher(tx).map_err(|error| AppError::GitCommand(error.to_string()))?;
+    watcher
+        .watch(&root, RecursiveMode::Recursive)
+        .map_err(|error| AppError::GitCommand(error.to_string()))?;
+    spawn_workspace_watch(app, cwd, root, rx);
+    let mut guard = state
+        .watcher
+        .lock()
+        .map_err(|_| "工作区监听状态不可用".to_owned())?;
+    *guard = Some(watcher);
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_workspace_watch(state: State<'_, WorkspaceWatcherState>) -> Result<(), String> {
+    let mut guard = state
+        .watcher
+        .lock()
+        .map_err(|_| "工作区监听状态不可用".to_owned())?;
+    *guard = None;
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())
+                .expect("初始化更新插件失败");
+            Ok(())
+        })
         .manage(PiProcessRegistry::default())
+        .manage(WorkspaceWatcherState::default())
         .invoke_handler(tauri::generate_handler![
             list_pi_projects,
             read_pi_session,
@@ -1883,7 +2034,9 @@ pub fn run() {
             capture_git_snapshot,
             get_git_snapshot_status,
             get_git_snapshot_diff,
-            release_git_snapshot
+            release_git_snapshot,
+            start_workspace_watch,
+            stop_workspace_watch
         ])
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
@@ -2186,16 +2339,23 @@ mod tests {
     }
 
     #[test]
-    fn get_git_status_should_split_rename_and_expand_untracked_files() {
+    fn get_git_status_should_return_porcelain_codes_for_staged_and_untracked_files() {
         let repo = setup_git_repo();
         let status = get_git_status(repo.path().to_string_lossy().into_owned()).expect("status");
 
-        let renamed = status
+        let deleted = status
             .files
             .iter()
-            .find(|file| file.code.starts_with('R'))
-            .expect("renamed file status");
-        assert_eq!(renamed.path, "new name.txt");
+            .find(|file| file.path == "old name.txt")
+            .expect("deleted old path");
+        assert_eq!(deleted.code, " D");
+
+        let untracked_rename = status
+            .files
+            .iter()
+            .find(|file| file.path == "new name.txt")
+            .expect("untracked renamed path");
+        assert_eq!(untracked_rename.code, "??");
 
         assert!(status
             .files

@@ -9,15 +9,21 @@ Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 
 const mocks = vi.hoisted(() => ({
   getVersion: vi.fn(),
+  check: vi.fn(),
+  relaunch: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: mocks.getVersion }));
+vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: mocks.relaunch }));
 
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 
 beforeEach(() => {
   mocks.getVersion.mockReset().mockResolvedValue("0.1.6");
+  mocks.check.mockReset().mockResolvedValue(null);
+  mocks.relaunch.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -47,8 +53,8 @@ describe("SettingsPage navigation", () => {
   });
 
   it("检测到已发布的新版本并展示版本号", async () => {
-    let resolveRelease: ((response: Response) => void) | undefined;
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => { resolveRelease = resolve; })));
+    let resolveCheck: ((update: unknown) => void) | undefined;
+    mocks.check.mockImplementation(() => new Promise((resolve) => { resolveCheck = resolve; }));
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -67,17 +73,18 @@ describe("SettingsPage navigation", () => {
     expect(container.textContent).toContain("正在检查更新");
 
     await act(async () => {
-      resolveRelease?.(releaseResponse("v0.1.7"));
+      resolveCheck?.({ version: "0.1.7", downloadAndInstall: vi.fn() });
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(container.textContent).toContain("发现新版本 v0.1.7");
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="立即更新应用"]')).not.toBeNull();
     expect(checkButton?.disabled).toBe(false);
   });
 
   it("当前版本不低于已发布版本时显示已是最新", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(releaseResponse("v0.1.6"))));
+    mocks.check.mockResolvedValue(null);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -96,7 +103,7 @@ describe("SettingsPage navigation", () => {
   });
 
   it("检测失败时显示错误并允许重新检查", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("network unavailable"))));
+    mocks.check.mockRejectedValue(new Error("network unavailable"));
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -116,6 +123,33 @@ describe("SettingsPage navigation", () => {
     expect(checkButton?.disabled).toBe(false);
   });
 
+  it("点击立即更新进入安装状态并重新启动应用", async () => {
+    mocks.check.mockResolvedValue({ version: "0.1.7", downloadAndInstall: vi.fn(() => Promise.resolve()) });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<SettingsPage settings={DEFAULT_APP_SETTINGS} isTauri onBack={() => undefined} onUpdate={() => undefined} onReset={() => undefined} />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      container?.querySelector<HTMLButtonElement>('button[aria-label="检查应用更新"]')?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const installButton = container.querySelector<HTMLButtonElement>('button[aria-label="立即更新应用"]');
+    await act(async () => {
+      installButton?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("正在安装更新");
+    expect(mocks.relaunch).toHaveBeenCalledOnce();
+  });
+
   it("浏览器预览模式禁用更新检测", async () => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -130,10 +164,3 @@ describe("SettingsPage navigation", () => {
     expect(mocks.getVersion).not.toHaveBeenCalled();
   });
 });
-
-function releaseResponse(tagName: string) {
-  return new Response(JSON.stringify({ tag_name: tagName }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}

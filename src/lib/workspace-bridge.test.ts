@@ -45,12 +45,12 @@ describe("workspace bridge", () => {
       })
       .then((status) => {
         expect(status).toEqual({ branch: "main", clean: false, additions: 3, deletions: 1, files: [{ path: "src/App.tsx", code: "M " }] });
-        expect(mocks.invoke).toHaveBeenNthCalledWith(2, "get_git_snapshot_status", { cwd: "/code/demo", baselineTree: "baseline-tree" });
+        expect(mocks.invoke).toHaveBeenNthCalledWith(2, "get_git_snapshot_status", { cwd: "/code/demo", baseline: "baseline-tree" });
         return getGitSnapshotDiff("/code/demo", "baseline-tree", "src/App.tsx");
       })
       .then((diff) => {
         expect(diff).toBe("diff --git a/src/App.tsx b/src/App.tsx");
-        expect(mocks.invoke).toHaveBeenNthCalledWith(3, "get_git_snapshot_diff", { cwd: "/code/demo", baselineTree: "baseline-tree", path: "src/App.tsx" });
+        expect(mocks.invoke).toHaveBeenNthCalledWith(3, "get_git_snapshot_diff", { cwd: "/code/demo", baseline: "baseline-tree", path: "src/App.tsx" });
         mocks.invoke.mockResolvedValueOnce(undefined);
         return releaseGitSnapshot("/code/demo", "baseline-tree");
       })

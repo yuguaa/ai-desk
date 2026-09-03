@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { ArrowLeft, Check, LoaderCircle, Monitor, Moon, RefreshCw, RotateCcw, Settings, Sun, TriangleAlert } from "@/components/ui/icons";
+import { ArrowLeft, Check, Download, LoaderCircle, Monitor, Moon, RefreshCw, RotateCcw, Settings, Sun, TriangleAlert } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { ColorInput } from "@/components/ui/color-input";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,8 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RuntimeBadge } from "@/components/workspace/RuntimeBadge";
 import { mascotImageFor, Mascot } from "@/components/mascot/Mascot";
-import { checkForAppUpdate } from "@/lib/app-update";
+import { checkForAppUpdate, installAppUpdate } from "@/lib/app-update";
+import { type Update } from "@tauri-apps/plugin-updater";
 import { ACCENT_OPTIONS, FONT_OPTIONS, MASCOT_OPTIONS, MASCOT_SOURCE_OPTIONS, normalizeHexColor, normalizeMascotImageUrl, THEME_OPTIONS, type AccentColor, type AppSettings, type FontFamilyPreference, type MascotSource, type ThemePreference } from "@/lib/app-settings";
 import { isMacTauriRuntime } from "@/lib/pi-bridge";
 import { cn } from "@/lib/utils";
@@ -20,7 +21,8 @@ type UpdateCheckState =
   | { status: "idle" }
   | { status: "checking" }
   | { status: "latest"; latestVersion: string }
-  | { status: "available"; latestVersion: string }
+  | { status: "available"; latestVersion: string; update: Update }
+  | { status: "installing"; latestVersion: string; progress: number | null }
   | { status: "error" };
 
 export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onReset }: { settings: AppSettings; isTauri: boolean; onBack: () => void; onUpdate: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void; onReset: () => void }) {
@@ -70,10 +72,30 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
     if (!currentVersion || updateCheck.status === "checking") return;
     setUpdateCheck({ status: "checking" });
     checkForAppUpdate(currentVersion)
-      .then((result) => setUpdateCheck(result.updateAvailable
-        ? { status: "available", latestVersion: result.latestVersion }
+      .then((result) => setUpdateCheck(result.update
+        ? { status: "available", latestVersion: result.latestVersion, update: result.update }
         : { status: "latest", latestVersion: result.latestVersion }))
       .catch(() => setUpdateCheck({ status: "error" }));
+  };
+
+  const installUpdate = () => {
+    if (updateCheck.status !== "available") return;
+    const { latestVersion, update } = updateCheck;
+    let totalBytes: number | null = null;
+    let downloadedBytes = 0;
+    setUpdateCheck({ status: "installing", latestVersion, progress: null });
+    installAppUpdate(update, (event) => {
+      if (event.event === "Started") {
+        totalBytes = event.data.contentLength ?? null;
+        setUpdateCheck({ status: "installing", latestVersion, progress: totalBytes === null ? null : 0 });
+      } else if (event.event === "Progress") {
+        downloadedBytes += event.data.chunkLength;
+        const progress = totalBytes === null
+          ? null
+          : Math.min(100, Math.round((downloadedBytes / totalBytes) * 100));
+        setUpdateCheck({ status: "installing", latestVersion, progress });
+      }
+    }).catch(() => setUpdateCheck({ status: "error" }));
   };
 
   const updatePresentation = appUpdatePresentation(isTauri, currentVersion, updateCheck);
@@ -165,14 +187,20 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
                 <div className="flex w-full flex-col items-end gap-1">
                   <div className="flex items-center justify-end gap-2">
                     <span data-slot="current-app-version" className="min-w-16 text-right font-mono text-[var(--font-size-10-5)] tabular-nums text-[var(--text-secondary)]">{currentVersion ? `v${currentVersion}` : "—"}</span>
-                    <Button type="button" variant="outline" size="sm" aria-label="检查应用更新" className="w-24" disabled={!isTauri || !currentVersion || updateCheck.status === "checking"} onClick={checkUpdate}>
+                    <Button type="button" variant="outline" size="sm" aria-label="检查应用更新" className="w-24" disabled={!isTauri || !currentVersion || updateCheck.status === "checking" || updateCheck.status === "installing"} onClick={checkUpdate}>
                       {updateCheck.status === "checking" ? <LoaderCircle size={13} className="animate-spin" /> : <RefreshCw size={13} />}
                       {updateCheck.status === "checking" ? "检查中" : "检查更新"}
                     </Button>
                   </div>
+                  {updateCheck.status === "available" && (
+                    <Button type="button" variant="default" size="sm" aria-label="立即更新应用" className="w-24" onClick={installUpdate}>
+                      <Download size={13} />立即更新
+                    </Button>
+                  )}
                   <div role="status" aria-live="polite" className={cn("flex min-h-4 items-center gap-1 text-right text-[var(--font-size-9-5)]", updatePresentation.tone)}>
                     {updateCheck.status === "latest" && <Check size={11} />}
                     {updateCheck.status === "available" && <RefreshCw size={11} />}
+                    {updateCheck.status === "installing" && <LoaderCircle size={11} className="animate-spin" />}
                     {updateCheck.status === "error" && <TriangleAlert size={11} />}
                     <span>{updatePresentation.message}</span>
                   </div>
@@ -198,6 +226,8 @@ function appUpdatePresentation(isTauri: boolean, currentVersion: string | null, 
       return { message: "正在检查更新…", tone: "text-[var(--text-tertiary)]" };
     case "available":
       return { message: `发现新版本 v${state.latestVersion}`, tone: "text-[var(--accent)]" };
+    case "installing":
+      return { message: state.progress === null ? "正在安装更新…" : `正在下载更新 ${state.progress}%`, tone: "text-[var(--accent)]" };
     case "latest":
       return { message: `当前已是最新版本（v${state.latestVersion}）`, tone: "text-[var(--success)]" };
     case "error":

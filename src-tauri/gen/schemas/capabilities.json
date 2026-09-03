@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities for ai-desk","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-start-dragging","dialog:allow-open"]}}
+{"default":{"identifier":"default","description":"Default capabilities for ai-desk","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-start-dragging","dialog:allow-open","process:default","updater:default"]}}

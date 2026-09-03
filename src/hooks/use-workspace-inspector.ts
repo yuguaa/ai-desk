@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getGitDiff, getGitSnapshotDiff, getGitStatus, listWorkspaceFiles, readWorkspaceFile, runGitAction as executeGitAction } from "@/lib/workspace-bridge";
+import { getGitDiff, getGitSnapshotDiff, getGitStatus, listWorkspaceFiles, listenWorkspaceChanges, readWorkspaceFile, runGitAction as executeGitAction, startWorkspaceWatch, stopWorkspaceWatch } from "@/lib/workspace-bridge";
 import type { FilePreview, GitAction, GitStatus, WorkspaceFile } from "@/types/workspace";
 
 export type InspectorPreview =
@@ -16,7 +16,7 @@ export function useWorkspaceInspector(cwd: string) {
   const [gitOperation, setGitOperation] = useState<string | null>(null);
   const [gitNotice, setGitNotice] = useState<string | null>(null);
 
-  const refresh = () => {
+  const loadWorkspace = useCallback((clearSelection: boolean) => {
     if (!cwd) {
       setFiles([]);
       setGitStatus(null);
@@ -29,8 +29,10 @@ export function useWorkspaceInspector(cwd: string) {
     setIsLoading(true);
     setError(null);
     setGitNotice(null);
-    setPreview(null);
-    setSelectedPath(null);
+    if (clearSelection) {
+      setPreview(null);
+      setSelectedPath(null);
+    }
     return Promise.allSettled([listWorkspaceFiles(cwd), getGitStatus(cwd)])
       .then(([filesResult, gitResult]) => {
         if (filesResult.status === "fulfilled") setFiles(filesResult.value);
@@ -44,11 +46,41 @@ export function useWorkspaceInspector(cwd: string) {
         }
       })
       .finally(() => setIsLoading(false));
-  };
+  }, [cwd]);
+
+  const refresh = useCallback(() => loadWorkspace(true), [loadWorkspace]);
+  const syncWorkspace = useCallback(() => loadWorkspace(false), [loadWorkspace]);
 
   useEffect(() => {
     refresh();
-  }, [cwd]);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!cwd) {
+      stopWorkspaceWatch().catch(() => undefined);
+      return undefined;
+    }
+    let unlisten: (() => void) | undefined;
+    let stopped = false;
+    startWorkspaceWatch(cwd)
+      .catch(() => undefined)
+      .then(() => listenWorkspaceChanges((payload) => {
+        if (payload.cwd === cwd) syncWorkspace();
+      }))
+      .then((dispose) => {
+        if (stopped) dispose();
+        else unlisten = dispose;
+      })
+      .catch(() => undefined);
+    return () => {
+      stopped = true;
+      unlisten?.();
+    };
+  }, [cwd, syncWorkspace]);
+
+  useEffect(() => () => {
+    stopWorkspaceWatch().catch(() => undefined);
+  }, []);
 
   const openFile = (path: string) => {
     setSelectedPath(path);
