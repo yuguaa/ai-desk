@@ -45,8 +45,8 @@ describe("PromptInput", () => {
     const thinkingTrigger = container.querySelector('button[data-slot="dropdown-menu-trigger"][aria-label="选择思考深度，当前 中等"]');
     expect(modelTrigger?.textContent).toContain("Model A");
     expect(thinkingTrigger?.textContent).toContain("中等");
-    expect(modelTrigger?.closest(".relative.min-h-\\[116px\\]")).not.toBeNull();
-    expect(thinkingTrigger?.closest(".relative.min-h-\\[116px\\]")).not.toBeNull();
+    expect(modelTrigger?.closest('[data-slot="prompt-toolbar"]')).not.toBeNull();
+    expect(thinkingTrigger?.closest('[data-slot="prompt-toolbar"]')).not.toBeNull();
     expect(container.querySelectorAll('button[data-slot="select-trigger"]')).toHaveLength(0);
   });
 

@@ -587,13 +587,18 @@ fn spawn_pi_stdout_reader(
 fn spawn_pi_stderr_reader(app: AppHandle, conversation_id: String, stderr: ChildStderr) {
     std::thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            if !line.trim().is_empty() {
-                emit_pi_event(
-                    &app,
-                    &conversation_id,
-                    serde_json::json!({ "type": "process_stderr", "message": line }),
-                );
+            let trimmed = line.trim();
+            /* 新建会话时 --session-id 尚未落盘，Pi 会打印这句已知误报，无需透传给前端 */
+            if trimmed.is_empty()
+                || trimmed.starts_with("Warning: No project session found with id")
+            {
+                continue;
             }
+            emit_pi_event(
+                &app,
+                &conversation_id,
+                serde_json::json!({ "type": "process_stderr", "message": line }),
+            );
         }
     });
 }

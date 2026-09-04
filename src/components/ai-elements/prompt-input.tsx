@@ -110,34 +110,34 @@ export function PromptInput({
   return (
     <form onSubmit={(event) => { event.preventDefault(); if (isRunningRef.current && !valueRef.current.trim()) onAbortRef.current?.(); else onSubmitRef.current(); }} className={cn("overflow-hidden rounded-[var(--radius-composer)] bg-[var(--composer-bg)] shadow-[var(--composer-shadow)] ring-1 ring-inset ring-[var(--composer-border)] transition-[background-color,box-shadow] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:bg-[var(--composer-bg-hover)] focus-within:shadow-[var(--composer-shadow-focus)]", className)}>
       <ConversationQueue turns={queuedTurns} editingTurnId={editingQueuedTurnId} onReorder={onReorderQueuedTurn} onRemove={onRemoveQueuedTurn} onSteer={onSteerQueuedTurn} onEdit={onEditQueuedTurn} />
-      <div className="relative min-h-[116px]">
+      <div className="relative">
         {!value && <span data-slot="prompt-placeholder" className="pointer-events-none absolute left-3.5 top-3 z-10 text-[var(--font-size-13)] leading-5 text-[var(--text-disabled)]">{placeholder}</span>}
         <EditorContent
           editor={editor}
           className="prompt-editor"
         />
-        <div className="absolute inset-x-2 bottom-2 z-20 flex min-w-0 items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1">
-            {footer}
-            <ModelMenu
-              models={models}
-              selectedModel={selectedModel}
-              runtimeAvailable={runtimeAvailable}
-              isRunning={Boolean(isRunning)}
-              onModelChange={onModelChange}
-            />
-            <ThinkingMenu
-              thinkingLevel={thinkingLevel}
-              thinkingLevels={thinkingLevels}
-              runtimeAvailable={runtimeAvailable}
-              isRunning={Boolean(isRunning)}
-              onThinkingChange={onThinkingChange}
-            />
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <ContextUsageRing usage={contextUsage} />
-            <ComposerActionButton value={value} isRunning={Boolean(isRunning)} isEditingQueue={Boolean(editingQueuedTurnId)} onAbort={onAbort} />
-          </div>
+      </div>
+      <div data-slot="prompt-toolbar" className="flex min-w-0 items-center justify-between gap-2 px-2 pb-2 pt-1">
+        <div className="flex min-w-0 items-center gap-1">
+          {footer}
+          <ModelMenu
+            models={models}
+            selectedModel={selectedModel}
+            runtimeAvailable={runtimeAvailable}
+            isRunning={Boolean(isRunning)}
+            onModelChange={onModelChange}
+          />
+          <ThinkingMenu
+            thinkingLevel={thinkingLevel}
+            thinkingLevels={thinkingLevels}
+            runtimeAvailable={runtimeAvailable}
+            isRunning={Boolean(isRunning)}
+            onThinkingChange={onThinkingChange}
+          />
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <ContextUsageRing usage={contextUsage} />
+          <ComposerActionButton value={value} isRunning={Boolean(isRunning)} isEditingQueue={Boolean(editingQueuedTurnId)} onAbort={onAbort} />
         </div>
       </div>
     </form>

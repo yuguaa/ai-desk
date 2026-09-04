@@ -64,9 +64,17 @@ export function WorkspaceSidebar({ projects, conversations, pinnedConversationId
                     <SidebarIconButton label={isBusy ? `${project.name} 运行中，无法移除` : `从 AI Desk 移除 ${project.name}`} className="size-5" disabled={isBusy} onClick={() => onRemoveProject(project.id)}><X size={12} /></SidebarIconButton>
                   </div>
                 </div>
-                {!isCollapsed && <div className="ml-5 mt-0.5 min-w-0 border-l border-[var(--border-subtle)] pl-1">
-                  {projectConversations.length ? projectConversations.map((conversation) => <ConversationNav key={conversation.id} conversation={conversation} selected={activeConversationId === conversation.id} pinned={pinnedConversationIds.includes(conversation.id)} busy={Boolean(processes[conversation.id]?.busy)} completed={completedConversationIds.includes(conversation.id)} onClick={() => onSelectConversation(conversation)} onArchive={() => onArchiveConversation(conversation.id)} onPin={(pinned) => onPinConversation(conversation.id, pinned)} onRename={() => { const name = window.prompt("重命名会话", conversation.title)?.trim(); if (name) onRenameConversation(conversation.id, name); }} />) : <p className="px-2 py-1.5 text-[var(--font-size-10-5)] text-[var(--text-tertiary)]">还没有对话</p>}
-                </div>}
+                {!isCollapsed && (
+                  <div className="ml-5 mt-0.5 min-w-0 border-l border-[var(--border-subtle)] pl-1">
+                    {projectConversations.length ? (
+                      <div data-slot="project-conversation-list" className="max-h-[17.5rem] overflow-y-auto overscroll-contain">
+                        {projectConversations.map((conversation) => <ConversationNav key={conversation.id} conversation={conversation} selected={activeConversationId === conversation.id} pinned={pinnedConversationIds.includes(conversation.id)} busy={Boolean(processes[conversation.id]?.busy)} completed={completedConversationIds.includes(conversation.id)} onClick={() => onSelectConversation(conversation)} onArchive={() => onArchiveConversation(conversation.id)} onPin={(pinned) => onPinConversation(conversation.id, pinned)} onRename={() => { const name = window.prompt("重命名会话", conversation.title)?.trim(); if (name) onRenameConversation(conversation.id, name); }} />)}
+                      </div>
+                    ) : (
+                      <p className="px-2 py-1.5 text-[var(--font-size-10-5)] text-[var(--text-tertiary)]">还没有对话</p>
+                    )}
+                  </div>
+                )}
               </div>
             );
           }) : <div className="mx-2 mt-8 flex flex-col items-center gap-3 text-center"><span className="grid size-9 place-items-center rounded-[var(--radius-md)] bg-[var(--control-bg)] text-[var(--text-tertiary)]"><FolderPlus size={17} /></span><div><p className="text-[var(--font-size-12)] font-medium text-[var(--text-secondary)]">还没有项目</p><p className="mt-0.5 text-[var(--font-size-10-5)] text-[var(--text-tertiary)]">选择一个目录开始工作</p></div><Button type="button" variant="outline" size="sm" onClick={onNewProject}><FolderPlus size={13} />新建项目</Button></div>}
