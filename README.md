@@ -2,6 +2,12 @@
 
 本地优先的 Pi Coding Agent 桌面工作区。
 
+## 预览
+
+![工作区预览](docs/images/workspace.png)
+
+![设置页预览](docs/images/settings.png)
+
 ## 开发
 
 要求：
@@ -73,7 +79,7 @@ macOS 使用临时签名，Windows 安装时可能显示未认证发布者提示
 ## 应用内更新
 
 桌面应用内置 Tauri updater，支持从已发布的 GitHub Release 检查并
-一键下载安装新版本。
+下载新版本；下载完成后，由用户确认安装并重启应用。
 
 发布流程需要两个前置条件：
 

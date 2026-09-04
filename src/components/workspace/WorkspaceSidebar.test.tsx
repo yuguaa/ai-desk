@@ -149,10 +149,109 @@ describe("WorkspaceSidebar", () => {
     });
 
     const archiveItem = Array.from(document.querySelectorAll<HTMLElement>('[data-slot="context-menu-item"]')).find((item) => item.textContent === "运行中，无法归档");
+    const conversationStatus = container.querySelector<HTMLElement>('[data-slot="conversation-status"]');
+    const actionArea = container.querySelector<HTMLButtonElement>('button[aria-label="置顶会话"]')?.parentElement;
     expect(archiveItem?.getAttribute("data-disabled")).toBe("");
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="demo 运行中，无法移除"]')?.disabled).toBe(true);
+    expect(conversationStatus?.className).toContain("group-hover/conversation:opacity-0");
+    expect(actionArea?.className).toContain("z-20");
     act(() => archiveItem?.click());
     expect(onArchiveConversation).not.toHaveBeenCalled();
+  });
+
+  it("每个项目默认展示 5 条对话并且每次展开 5 条", async () => {
+    const conversations = Array.from({ length: 12 }, (_, index) => ({
+      id: `session-${index + 1}`,
+      projectId: "/code/demo",
+      title: `对话 ${index + 1}`,
+      preview: "",
+      time: "刚刚",
+    }));
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<TooltipProvider><WorkspaceSidebar
+        projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
+        conversations={conversations}
+        pinnedConversationIds={[]}
+        activeProjectId="/code/demo"
+        activeConversationId=""
+        processes={{}}
+        completedConversationIds={[]}
+        isLoading={false}
+        onOpenSettings={() => undefined}
+        onRefresh={() => undefined}
+        onNewProject={() => undefined}
+        onRemoveProject={() => undefined}
+        onNewConversation={() => undefined}
+        onArchiveConversation={() => undefined}
+        onRenameConversation={() => undefined}
+        onPinConversation={() => undefined}
+        onSelectProject={() => undefined}
+        onSelectConversation={() => undefined}
+      /></TooltipProvider>);
+    });
+
+    const conversationList = container.querySelector<HTMLElement>('[data-slot="project-conversation-list"]');
+    expect(conversationList?.className).not.toContain("max-h-[17.5rem]");
+    expect(conversationList?.className).not.toContain("overflow-y-auto");
+    expect(conversationList?.className).not.toContain("overscroll-contain");
+    expect(container.querySelectorAll('[data-slot="conversation-title"]')).toHaveLength(5);
+
+    const expandButton = () => container?.querySelector<HTMLButtonElement>('button[aria-label="展开 demo 的更多对话"]');
+    act(() => expandButton()?.click());
+    expect(container.querySelectorAll('[data-slot="conversation-title"]')).toHaveLength(10);
+
+    act(() => expandButton()?.click());
+    expect(container.querySelectorAll('[data-slot="conversation-title"]')).toHaveLength(12);
+    expect(expandButton()).toBeNull();
+  });
+
+  it("不同项目的对话展开状态相互独立", async () => {
+    const conversations = ["alpha", "beta"].flatMap((project) => Array.from({ length: 6 }, (_, index) => ({
+      id: `${project}-${index + 1}`,
+      projectId: `/code/${project}`,
+      title: `${project} 对话 ${index + 1}`,
+      preview: "",
+      time: "刚刚",
+    })));
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<TooltipProvider><WorkspaceSidebar
+        projects={[
+          { id: "/code/alpha", name: "alpha", path: "/code/alpha" },
+          { id: "/code/beta", name: "beta", path: "/code/beta" },
+        ]}
+        conversations={conversations}
+        pinnedConversationIds={[]}
+        activeProjectId="/code/alpha"
+        activeConversationId=""
+        processes={{}}
+        completedConversationIds={[]}
+        isLoading={false}
+        onOpenSettings={() => undefined}
+        onRefresh={() => undefined}
+        onNewProject={() => undefined}
+        onRemoveProject={() => undefined}
+        onNewConversation={() => undefined}
+        onArchiveConversation={() => undefined}
+        onRenameConversation={() => undefined}
+        onPinConversation={() => undefined}
+        onSelectProject={() => undefined}
+        onSelectConversation={() => undefined}
+      /></TooltipProvider>);
+    });
+
+    expect(container.querySelectorAll('[data-slot="conversation-title"]')).toHaveLength(10);
+    act(() => container?.querySelector<HTMLButtonElement>('button[aria-label="展开 alpha 的更多对话"]')?.click());
+    expect(container.querySelectorAll('[data-slot="conversation-title"]')).toHaveLength(11);
+    expect(container.textContent).toContain("alpha 对话 6");
+    expect(container.textContent).not.toContain("beta 对话 6");
   });
 
   it("会话悬停操作区提供置顶和归档按钮", async () => {

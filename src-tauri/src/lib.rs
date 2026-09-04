@@ -1733,10 +1733,79 @@ fn diff_numstat_between_trees(
 }
 
 fn snapshot_status(root: &Path, baseline_tree: &str) -> Result<GitStatus, AppError> {
-    let status = branch_status(root)?;
     let current_tree = capture_snapshot_tree(root)?;
-    let files = diff_changes_between_trees(root, baseline_tree, &current_tree)?;
-    let (additions, deletions) = diff_numstat_between_trees(root, baseline_tree, &current_tree)?;
+    snapshot_status_between(root, baseline_tree, &current_tree)
+}
+
+fn snapshot_status_scoped(
+    root: &Path,
+    baseline_tree: &str,
+    end_tree: &str,
+    paths: &[String],
+) -> Result<GitStatus, AppError> {
+    let branch = branch_status(root)?.branch;
+    /* 全量撤销后没有需要展示的剩余文件，直接返回 clean 状态 */
+    if paths.is_empty() {
+        return Ok(GitStatus {
+            branch,
+            clean: true,
+            additions: 0,
+            deletions: 0,
+            files: Vec::new(),
+        });
+    }
+
+    for path in paths {
+        relative_workspace_path(root, path)?;
+    }
+
+    let mut files_args = vec![
+        "diff",
+        "--name-status",
+        "-z",
+        "--find-renames",
+        baseline_tree,
+        end_tree,
+        "--",
+    ];
+    files_args.extend(paths.iter().map(String::as_str));
+    let files = parse_git_name_status(&run_git_bytes(git_command(root, &files_args))?)?;
+
+    let mut numstat_args = vec![
+        "diff",
+        "--numstat",
+        "-z",
+        "--find-renames",
+        baseline_tree,
+        end_tree,
+        "--",
+    ];
+    numstat_args.extend(paths.iter().map(String::as_str));
+    let (additions, deletions) = parse_git_numstat(&run_git_bytes(git_command(root, &numstat_args))?)?;
+
+    Ok(GitStatus {
+        branch,
+        clean: files.is_empty(),
+        additions,
+        deletions,
+        files: files
+            .into_iter()
+            .map(|change| GitFileStatus {
+                path: change.path,
+                code: change.code,
+            })
+            .collect(),
+    })
+}
+
+fn snapshot_status_between(
+    root: &Path,
+    baseline_tree: &str,
+    end_tree: &str,
+) -> Result<GitStatus, AppError> {
+    let status = branch_status(root)?;
+    let files = diff_changes_between_trees(root, baseline_tree, end_tree)?;
+    let (additions, deletions) = diff_numstat_between_trees(root, baseline_tree, end_tree)?;
 
     Ok(GitStatus {
         branch: status.branch,
@@ -1776,9 +1845,18 @@ fn porcelain_status(root: &Path) -> Result<GitStatus, AppError> {
 }
 
 fn snapshot_diff(root: &Path, baseline_tree: &str, path: &str) -> Result<String, AppError> {
-    let requested_path = relative_workspace_path(root, path)?;
     let current_tree = capture_snapshot_tree(root)?;
-    let changes = diff_changes_between_trees(root, baseline_tree, &current_tree)?;
+    snapshot_diff_between(root, baseline_tree, &current_tree, path)
+}
+
+fn snapshot_diff_between(
+    root: &Path,
+    baseline_tree: &str,
+    end_tree: &str,
+    path: &str,
+) -> Result<String, AppError> {
+    let requested_path = relative_workspace_path(root, path)?;
+    let changes = diff_changes_between_trees(root, baseline_tree, end_tree)?;
 
     let related = changes
         .iter()
@@ -1795,7 +1873,7 @@ fn snapshot_diff(root: &Path, baseline_tree: &str, path: &str) -> Result<String,
         "--unified=3",
         "--find-renames",
         baseline_tree,
-        current_tree.as_str(),
+        end_tree,
         "--",
     ];
     if let Some(change) = related {
@@ -1808,6 +1886,61 @@ fn snapshot_diff(root: &Path, baseline_tree: &str, path: &str) -> Result<String,
     }
 
     run_git(root, &args)
+}
+
+fn checkout_tree_path(root: &Path, baseline_tree: &str, path: &str) -> Result<(), AppError> {
+    run_git(root, &["checkout", baseline_tree, "--", path])?;
+    Ok(())
+}
+
+fn remove_workspace_path(root: &Path, path: &str) -> Result<(), AppError> {
+    /* 先取消暂存（若已在索引中），再删除工作区文件 */
+    let _ = run_git(root, &["rm", "--cached", "-r", "--ignore-unmatch", "--", path]);
+    let full = root.join(path);
+    if full.is_dir() {
+        let _ = fs::remove_dir_all(&full);
+    } else {
+        let _ = fs::remove_file(&full);
+    }
+    Ok(())
+}
+
+fn revert_change(root: &Path, baseline_tree: &str, change: &GitChange) -> Result<(), AppError> {
+    let code = change.code.trim();
+    if code.starts_with('A') || code.starts_with('C') {
+        /* 新增/复制：从索引与工作区删除目标路径 */
+        remove_workspace_path(root, &change.path)?;
+    } else if code.starts_with('R') {
+        /* 重命名：恢复旧路径，删除新路径 */
+        if let Some(previous) = change.previous_path.as_deref() {
+            checkout_tree_path(root, baseline_tree, previous)?;
+        }
+        remove_workspace_path(root, &change.path)?;
+    } else if code.starts_with('D') {
+        /* 删除：从基线恢复 */
+        checkout_tree_path(root, baseline_tree, &change.path)?;
+    } else {
+        /* 修改/类型变更：从基线恢复 */
+        checkout_tree_path(root, baseline_tree, &change.path)?;
+    }
+    Ok(())
+}
+
+fn revert_snapshot(
+    root: &Path,
+    baseline_tree: &str,
+    end_tree: &str,
+    path: Option<&str>,
+) -> Result<(), AppError> {
+    let changes = diff_changes_between_trees(root, baseline_tree, end_tree)?;
+    let selected = changes.iter().filter(|change| match path {
+        Some(target) => change.path == target || change.previous_path.as_deref() == Some(target),
+        None => true,
+    });
+    for change in selected {
+        revert_change(root, baseline_tree, change)?;
+    }
+    Ok(())
 }
 
 fn unstage_git_path(root: &Path, path: &str) -> Result<(), AppError> {
@@ -1886,10 +2019,34 @@ fn get_git_snapshot_status(cwd: String, baseline: String) -> Result<GitStatus, S
 }
 
 #[tauri::command]
+fn get_git_snapshot_status_between(cwd: String, baseline: String, end: String) -> Result<GitStatus, String> {
+    let root = workspace_root(&cwd)?;
+    let baseline_tree = resolve_treeish(&root, &baseline)?;
+    let end_tree = resolve_treeish(&root, &end)?;
+    snapshot_status_between(&root, &baseline_tree, &end_tree).map_err(Into::into)
+}
+
+#[tauri::command]
+fn get_git_snapshot_status_scoped(cwd: String, baseline: String, end: String, paths: Vec<String>) -> Result<GitStatus, String> {
+    let root = workspace_root(&cwd)?;
+    let baseline_tree = resolve_treeish(&root, &baseline)?;
+    let end_tree = resolve_treeish(&root, &end)?;
+    snapshot_status_scoped(&root, &baseline_tree, &end_tree, &paths).map_err(Into::into)
+}
+
+#[tauri::command]
 fn get_git_snapshot_diff(cwd: String, baseline: String, path: String) -> Result<String, String> {
     let root = workspace_root(&cwd)?;
     let baseline_tree = resolve_treeish(&root, &baseline)?;
     snapshot_diff(&root, &baseline_tree, &path).map_err(Into::into)
+}
+
+#[tauri::command]
+fn get_git_snapshot_diff_between(cwd: String, baseline: String, end: String, path: String) -> Result<String, String> {
+    let root = workspace_root(&cwd)?;
+    let baseline_tree = resolve_treeish(&root, &baseline)?;
+    let end_tree = resolve_treeish(&root, &end)?;
+    snapshot_diff_between(&root, &baseline_tree, &end_tree, &path).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -1901,6 +2058,14 @@ fn release_git_snapshot(cwd: String, snapshot: String) -> Result<(), String> {
     let reference = format!("refs/ai-desk/snapshots/{snapshot}");
     run_git(&root, &["update-ref", "-d", reference.as_str()])?;
     Ok(())
+}
+
+#[tauri::command]
+fn revert_git_snapshot(cwd: String, baseline: String, end: String, path: Option<String>) -> Result<(), String> {
+    let root = workspace_root(&cwd)?;
+    let baseline_tree = resolve_treeish(&root, &baseline)?;
+    let end_tree = resolve_treeish(&root, &end)?;
+    revert_snapshot(&root, &baseline_tree, &end_tree, path.as_deref()).map_err(Into::into)
 }
 
 fn watch_path_relevant(root: &Path, path: &Path) -> bool {
@@ -2038,8 +2203,12 @@ pub fn run() {
             run_git_action,
             capture_git_snapshot,
             get_git_snapshot_status,
+            get_git_snapshot_status_between,
+            get_git_snapshot_status_scoped,
             get_git_snapshot_diff,
+            get_git_snapshot_diff_between,
             release_git_snapshot,
+            revert_git_snapshot,
             start_workspace_watch,
             stop_workspace_watch
         ])
@@ -2578,5 +2747,67 @@ mod tests {
             .output()
             .expect("inspect snapshot ref");
         assert!(!output.status.success());
+    }
+
+    #[test]
+    fn revert_git_snapshot_should_restore_single_file() {
+        let repo = TestDir::new("revert-snapshot");
+        git(repo.path(), &["init"]);
+        write_file(repo.path(), "keep.txt", "base\n");
+        write_file(repo.path(), "modified.txt", "base\n");
+        git(repo.path(), &["add", "."]);
+        git(repo.path(), &["commit", "-m", "init"]);
+
+        let baseline = capture_git_snapshot(repo.path().to_string_lossy().into_owned())
+            .expect("capture baseline");
+        write_file(repo.path(), "modified.txt", "changed\n");
+        write_file(repo.path(), "added.txt", "new\n");
+        let end = capture_git_snapshot(repo.path().to_string_lossy().into_owned())
+            .expect("capture end");
+
+        revert_git_snapshot(
+            repo.path().to_string_lossy().into_owned(),
+            baseline,
+            end,
+            Some("modified.txt".to_owned()),
+        )
+        .expect("revert single file");
+
+        assert_eq!(
+            fs::read_to_string(repo.path().join("modified.txt")).unwrap(),
+            "base\n"
+        );
+        assert_eq!(fs::read_to_string(repo.path().join("added.txt")).unwrap(), "new\n");
+    }
+
+    #[test]
+    fn revert_git_snapshot_should_restore_all_files() {
+        let repo = TestDir::new("revert-snapshot-all");
+        git(repo.path(), &["init"]);
+        write_file(repo.path(), "modified.txt", "base\n");
+        write_file(repo.path(), "deleted.txt", "base\n");
+        git(repo.path(), &["add", "."]);
+        git(repo.path(), &["commit", "-m", "init"]);
+
+        let baseline = capture_git_snapshot(repo.path().to_string_lossy().into_owned())
+            .expect("capture baseline");
+        write_file(repo.path(), "modified.txt", "changed\n");
+        write_file(repo.path(), "added.txt", "new\n");
+        fs::remove_file(repo.path().join("deleted.txt")).unwrap();
+        let end = capture_git_snapshot(repo.path().to_string_lossy().into_owned())
+            .expect("capture end");
+
+        revert_git_snapshot(repo.path().to_string_lossy().into_owned(), baseline, end, None)
+            .expect("revert all files");
+
+        assert_eq!(
+            fs::read_to_string(repo.path().join("modified.txt")).unwrap(),
+            "base\n"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.path().join("deleted.txt")).unwrap(),
+            "base\n"
+        );
+        assert!(!repo.path().join("added.txt").exists());
     }
 }

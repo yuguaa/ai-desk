@@ -81,6 +81,7 @@ describe("conversation turn changes storage", () => {
         turnIndex: 0,
         promptFingerprint: "4:test",
         baselineTree: "tree-0",
+        endTree: "tree-0-end",
         phase: "completed",
         status: { ...baseStatus, clean: false, additions: 3, deletions: 1, files: [{ path: "src/App.tsx", code: "M " }] },
       },
@@ -90,6 +91,7 @@ describe("conversation turn changes storage", () => {
         turnIndex: 1,
         promptFingerprint: "4:next",
         baselineTree: "tree-1",
+        endTree: null,
         phase: "running",
         status: null,
       },
@@ -102,6 +104,7 @@ describe("conversation turn changes storage", () => {
         turnIndex: 0,
         promptFingerprint: "4:test",
         baselineTree: "tree-0",
+        endTree: "tree-0-end",
         phase: "completed",
         status: { ...baseStatus, clean: false, additions: 3, deletions: 1, files: [{ path: "src/App.tsx", code: "M" }] },
       },
@@ -122,13 +125,14 @@ describe("conversation turn changes storage", () => {
         turnIndex: index,
         promptFingerprint: `prompt-${index}`,
         baselineTree: `tree-${index}`,
+        endTree: null,
         phase: "completed" as const,
         completedAt: index,
         status: null,
       },
     ]));
 
-    expect(saveConversationTurnChanges(changes).map((entry) => entry.baselineTree)).toEqual(["tree-0"]);
+    expect(saveConversationTurnChanges(changes).map(({ tree }) => tree)).toEqual(["tree-0"]);
     expect(Object.keys(loadConversationTurnChanges())).toHaveLength(100);
   });
 });

@@ -2,10 +2,21 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import SettingsPage from "@/pages/SettingsPage";
 import { DEFAULT_APP_SETTINGS } from "@/lib/app-settings";
+import type { AppUpdateController } from "@/hooks/use-app-update";
+
+const appUpdate: AppUpdateController = {
+  currentVersion: "0.1.13",
+  state: { status: "idle" },
+  canCheck: true,
+  checkUpdate: vi.fn(),
+  downloadUpdate: vi.fn(),
+  installUpdate: vi.fn(),
+  restartApp: vi.fn(),
+};
 
 describe("SettingsPage", () => {
   it("renders appearance controls, mascot controls, and every mascot option", () => {
-    const html = renderToStaticMarkup(<SettingsPage settings={DEFAULT_APP_SETTINGS} isTauri onBack={vi.fn()} onUpdate={vi.fn()} onReset={vi.fn()} />);
+    const html = renderToStaticMarkup(<SettingsPage settings={DEFAULT_APP_SETTINGS} appUpdate={appUpdate} isTauri onBack={vi.fn()} onUpdate={vi.fn()} onReset={vi.fn()} />);
 
     expect(html).toContain("应用设置");
     expect(html).toContain("跟随系统");
@@ -47,7 +58,7 @@ describe("SettingsPage", () => {
 
   it("renders a validated custom image source without the built-in grid", () => {
     const settings = { ...DEFAULT_APP_SETTINGS, mascotSource: "customUrl" as const, mascotImageUrl: "https://example.com/mascot.png" };
-    const html = renderToStaticMarkup(<SettingsPage settings={settings} isTauri onBack={vi.fn()} onUpdate={vi.fn()} onReset={vi.fn()} />);
+    const html = renderToStaticMarkup(<SettingsPage settings={settings} appUpdate={appUpdate} isTauri onBack={vi.fn()} onUpdate={vi.fn()} onReset={vi.fn()} />);
 
     expect(html).toContain('aria-label="看板娘图片地址"');
     expect(html).toContain('value="https://example.com/mascot.png"');

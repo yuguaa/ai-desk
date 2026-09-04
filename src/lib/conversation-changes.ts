@@ -8,6 +8,7 @@ export type ConversationTurnChanges = {
   turnIndex: number;
   promptFingerprint: string;
   baselineTree: string;
+  endTree: string | null;
   phase: "running" | "completed";
   completedAt?: number;
   status: GitStatus | null;
@@ -45,18 +46,25 @@ export function loadConversationTurnChanges() {
   }
 }
 
+export type ReleasedSnapshot = { cwd: string; tree: string };
+
 export function saveConversationTurnChanges(changes: Record<string, ConversationTurnChanges>) {
-  if (typeof localStorage === "undefined") return [] as ConversationTurnChanges[];
+  if (typeof localStorage === "undefined") return [] as ReleasedSnapshot[];
 
   const completedEntries = Object.entries(changes)
     .filter(([, entry]) => entry.phase === "completed")
     .sort(([, left], [, right]) => (left.completedAt ?? 0) - (right.completedAt ?? 0));
   const retainedEntries = completedEntries.slice(-MAX_PERSISTED_TURNS);
-  const retainedTrees = new Set(retainedEntries.map(([, entry]) => entry.baselineTree));
-  const evicted = completedEntries
+  const retainedTrees = new Set(
+    retainedEntries.flatMap(([, entry]) => [entry.baselineTree, entry.endTree].filter((tree): tree is string => Boolean(tree))),
+  );
+  const released = completedEntries
     .slice(0, -MAX_PERSISTED_TURNS)
-    .map(([, entry]) => entry)
-    .filter((entry) => !retainedTrees.has(entry.baselineTree));
+    .flatMap(([, entry]) => [
+      { cwd: entry.cwd, tree: entry.baselineTree },
+      ...(entry.endTree ? [{ cwd: entry.cwd, tree: entry.endTree }] : []),
+    ])
+    .filter(({ tree }) => !retainedTrees.has(tree));
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(retainedEntries)));
   } catch {
@@ -64,7 +72,7 @@ export function saveConversationTurnChanges(changes: Record<string, Conversation
      * 统计持久化不能中断对话主流程，内存中的本轮结果仍然可正常展示。
      */
   }
-  return evicted;
+  return released;
 }
 
 export function getConversationChanges(snapshotStatus: ConversationSnapshotStatus | null) {
@@ -116,6 +124,7 @@ function normalizeStoredTurnChanges(value: unknown): ConversationTurnChanges | n
 
   const status = normalizeStoredStatus(entry.status);
   if (entry.status !== null && !status) return null;
+  const endTree = typeof entry.endTree === "string" ? entry.endTree : null;
 
   return {
     cwd: entry.cwd,
@@ -123,6 +132,7 @@ function normalizeStoredTurnChanges(value: unknown): ConversationTurnChanges | n
     turnIndex: entry.turnIndex,
     promptFingerprint: entry.promptFingerprint,
     baselineTree: entry.baselineTree,
+    endTree,
     phase: "completed",
     completedAt: typeof entry.completedAt === "number" && Number.isFinite(entry.completedAt) ? entry.completedAt : undefined,
     status: getConversationChanges(status),

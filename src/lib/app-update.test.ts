@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: mocks.check }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: mocks.relaunch }));
 
-import { checkForAppUpdate, installAppUpdate } from "@/lib/app-update";
+import { checkForAppUpdate, downloadAppUpdate, installDownloadedAppUpdate, relaunchApp } from "@/lib/app-update";
 import type { Update } from "@tauri-apps/plugin-updater";
 
 afterEach(() => {
@@ -17,14 +17,13 @@ afterEach(() => {
 
 describe("app update", () => {
   it("检查到已发布的新版本", () => {
-    const update = { version: "0.1.7", downloadAndInstall: vi.fn() };
+    const update = { version: "0.1.7" };
     mocks.check.mockResolvedValue(update);
 
     return checkForAppUpdate("0.1.6").then((result) => {
       expect(result).toEqual({
         currentVersion: "0.1.6",
         latestVersion: "0.1.7",
-        updateAvailable: true,
         update,
       });
       expect(mocks.check).toHaveBeenCalledOnce();
@@ -38,30 +37,47 @@ describe("app update", () => {
       expect(result).toEqual({
         currentVersion: "0.1.6",
         latestVersion: "0.1.6",
-        updateAvailable: false,
         update: null,
       });
     });
   });
 
-  it("安装更新后重新启动应用", () => {
-    const downloadAndInstall = vi.fn(() => Promise.resolve());
-    mocks.relaunch.mockResolvedValue(undefined);
+  it("下载更新后不安装或重启", () => {
+    const download = vi.fn(() => Promise.resolve());
+    const install = vi.fn(() => Promise.resolve());
+    const onProgress = vi.fn();
 
-    return installAppUpdate({ version: "0.1.7", downloadAndInstall } as unknown as Update, () => undefined).then(() => {
-      expect(downloadAndInstall).toHaveBeenCalledOnce();
-      expect(mocks.relaunch).toHaveBeenCalledOnce();
+    return downloadAppUpdate({ version: "0.1.7", download, install } as unknown as Update, onProgress).then(() => {
+      expect(download).toHaveBeenCalledWith(onProgress);
+      expect(install).not.toHaveBeenCalled();
+      expect(mocks.relaunch).not.toHaveBeenCalled();
     });
   });
 
-  it("安装失败时不重新启动", () => {
-    const downloadAndInstall = vi.fn(() => Promise.reject(new Error("网络错误")));
+  it("安装已下载的更新时不隐式重启应用", () => {
+    const install = vi.fn(() => Promise.resolve());
     mocks.relaunch.mockResolvedValue(undefined);
 
-    return installAppUpdate({ version: "0.1.7", downloadAndInstall } as unknown as Update, () => undefined)
+    return installDownloadedAppUpdate({ version: "0.1.7", install } as unknown as Update).then(() => {
+      expect(install).toHaveBeenCalledOnce();
+      expect(mocks.relaunch).not.toHaveBeenCalled();
+    });
+  });
+
+  it("显式重新启动应用", () => {
+    mocks.relaunch.mockResolvedValue(undefined);
+
+    return relaunchApp().then(() => expect(mocks.relaunch).toHaveBeenCalledOnce());
+  });
+
+  it("安装失败时不重新启动", () => {
+    const install = vi.fn(() => Promise.reject(new Error("安装错误")));
+    mocks.relaunch.mockResolvedValue(undefined);
+
+    return installDownloadedAppUpdate({ version: "0.1.7", install } as unknown as Update)
       .then(() => { throw new Error("应当抛出安装错误"); })
       .catch((error) => {
-        expect(error.message).toBe("网络错误");
+        expect(error.message).toBe("安装错误");
         expect(mocks.relaunch).not.toHaveBeenCalled();
       });
   });

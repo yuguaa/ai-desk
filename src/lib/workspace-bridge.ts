@@ -43,14 +43,34 @@ export function getGitSnapshotStatus(cwd: string, baselineTree: string) {
   return invoke<GitSnapshotStatus | null>("get_git_snapshot_status", { cwd, baseline: baselineTree });
 }
 
+export function getGitSnapshotStatusBetween(cwd: string, baselineTree: string, endTree: string) {
+  if (!isTauriRuntime()) return Promise.resolve<GitSnapshotStatus | null>(null);
+  return invoke<GitSnapshotStatus | null>("get_git_snapshot_status_between", { cwd, baseline: baselineTree, end: endTree });
+}
+
+export function getGitSnapshotStatusScoped(cwd: string, baselineTree: string, endTree: string, paths: string[]) {
+  if (!isTauriRuntime()) return Promise.resolve<GitSnapshotStatus | null>(null);
+  return invoke<GitSnapshotStatus | null>("get_git_snapshot_status_scoped", { cwd, baseline: baselineTree, end: endTree, paths });
+}
+
 export function getGitSnapshotDiff(cwd: string, baselineTree: string, path: string) {
   if (!isTauriRuntime()) return Promise.resolve("");
   return invoke<string>("get_git_snapshot_diff", { cwd, baseline: baselineTree, path });
 }
 
+export function getGitSnapshotDiffBetween(cwd: string, baselineTree: string, endTree: string, path: string) {
+  if (!isTauriRuntime()) return Promise.resolve("");
+  return invoke<string>("get_git_snapshot_diff_between", { cwd, baseline: baselineTree, end: endTree, path });
+}
+
 export function releaseGitSnapshot(cwd: string, snapshot: string) {
   if (!isTauriRuntime()) return Promise.resolve();
   return invoke<void>("release_git_snapshot", { cwd, snapshot });
+}
+
+export function revertGitSnapshot(cwd: string, baselineTree: string, endTree: string, path: string | null) {
+  if (!isTauriRuntime()) return Promise.resolve();
+  return invoke<void>("revert_git_snapshot", { cwd, baseline: baselineTree, end: endTree, path });
 }
 
 export function pickProjectDirectory() {

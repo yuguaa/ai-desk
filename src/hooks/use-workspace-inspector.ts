@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getGitDiff, getGitSnapshotDiff, getGitStatus, listWorkspaceFiles, listenWorkspaceChanges, readWorkspaceFile, runGitAction as executeGitAction, startWorkspaceWatch, stopWorkspaceWatch } from "@/lib/workspace-bridge";
+import { getGitDiff, getGitSnapshotDiff, getGitSnapshotDiffBetween, getGitStatus, listWorkspaceFiles, listenWorkspaceChanges, readWorkspaceFile, runGitAction as executeGitAction, startWorkspaceWatch, stopWorkspaceWatch } from "@/lib/workspace-bridge";
 import type { FilePreview, GitAction, GitStatus, WorkspaceFile } from "@/types/workspace";
 
 export type InspectorPreview =
@@ -91,9 +91,13 @@ export function useWorkspaceInspector(cwd: string) {
       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
   };
 
-  const openDiff = (path: string, baselineTree?: string) => {
+  const openDiff = (path: string, baselineTree?: string, endTree?: string) => {
     setSelectedPath(path);
-    const request = baselineTree ? getGitSnapshotDiff(cwd, baselineTree, path) : getGitDiff(cwd, path);
+    const request = baselineTree && endTree
+      ? getGitSnapshotDiffBetween(cwd, baselineTree, endTree, path)
+      : baselineTree
+        ? getGitSnapshotDiff(cwd, baselineTree, path)
+        : getGitDiff(cwd, path);
     request
       .then((content) => setPreview({ kind: "text", path, language: "diff", content, mode: "diff" }))
       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));

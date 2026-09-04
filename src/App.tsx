@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from "react";
 import { Mascot } from "@/components/mascot/Mascot";
 import WorkspacePage from "@/pages/WorkspacePage";
+import { useAppUpdate } from "@/hooks/use-app-update";
 import { useAppSettings } from "@/hooks/use-app-settings";
 import { isTauriRuntime } from "@/lib/pi-bridge";
 
@@ -10,8 +11,9 @@ export default function App() {
   const [view, setView] = useState<"workspace" | "settings">("workspace");
   const appSettings = useAppSettings();
   const isTauri = isTauriRuntime();
+  const appUpdate = useAppUpdate(isTauri);
   const content = view === "settings"
-    ? <Suspense fallback={<div className="h-full bg-[var(--bg-workspace)]" aria-busy="true" />}><SettingsPage settings={appSettings.settings} isTauri={isTauri} onBack={() => setView("workspace")} onUpdate={appSettings.updateSettings} onReset={appSettings.resetSettings} /></Suspense>
+    ? <Suspense fallback={<div className="h-full bg-[var(--bg-workspace)]" aria-busy="true" />}><SettingsPage settings={appSettings.settings} appUpdate={appUpdate} isTauri={isTauri} onBack={() => setView("workspace")} onUpdate={appSettings.updateSettings} onReset={appSettings.resetSettings} /></Suspense>
     : <WorkspacePage onOpenSettings={() => setView("settings")} />;
 
   return <div data-slot="app-shell" className="relative isolate h-screen overflow-hidden bg-[var(--bg-window)]">

@@ -43,6 +43,7 @@ const defaultProps: ComponentProps<typeof ChatPanel> = {
   onViewChanges: () => undefined,
   onRefreshChanges: () => undefined,
   onPreviewChange: () => undefined,
+  onRevertChange: () => Promise.resolve(false),
   onRespondToExtensionUi: () => undefined,
 };
 
@@ -74,6 +75,7 @@ describe("ChatPanel", () => {
             turnIndex: 0,
             promptFingerprint: getConversationTurnFingerprint("修改当前页面"),
             baselineTree: "tree-0",
+            endTree: null,
             phase: "running",
             status: null,
           },
@@ -111,6 +113,7 @@ describe("ChatPanel", () => {
             turnIndex: 0,
             promptFingerprint: getConversationTurnFingerprint("修改当前页面"),
             baselineTree: "tree-0",
+            endTree: null,
             phase: "completed",
             status: { branch: "main", clean: false, additions: 4, deletions: 1, files: [{ path: "src/App.tsx", code: "M" }] },
           },
@@ -140,6 +143,7 @@ describe("ChatPanel", () => {
       turnIndex: 0,
       promptFingerprint: getConversationTurnFingerprint("修改当前页面"),
       baselineTree: "tree-0",
+      endTree: null,
       phase: "running" as const,
       status: null,
     };

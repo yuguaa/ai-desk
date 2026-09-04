@@ -7,7 +7,14 @@ import {
   saveConversationTurnChanges,
   type ConversationTurnChanges,
 } from "@/lib/conversation-changes";
-import { captureGitSnapshot, getGitSnapshotStatus, releaseGitSnapshot } from "@/lib/workspace-bridge";
+import {
+  captureGitSnapshot,
+  getGitSnapshotStatus,
+  getGitSnapshotStatusBetween,
+  getGitSnapshotStatusScoped,
+  releaseGitSnapshot,
+  revertGitSnapshot,
+} from "@/lib/workspace-bridge";
 
 type TurnStart = {
   cwd: string;
@@ -77,6 +84,7 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
         turnIndex,
         promptFingerprint: getConversationTurnFingerprint(prompt),
         baselineTree,
+        endTree: null,
         phase: "running",
         status: null,
       });
@@ -85,7 +93,24 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
   const refreshTurn = (turnIndex: number) => {
     const entry = changesByTurn[turnIndex];
     if (!entry) return;
-    refreshEntry(getConversationTurnKey(entry.cwd, entry.conversationId, entry.turnIndex), entry);
+    refreshCompletedTurn(getConversationTurnKey(entry.cwd, entry.conversationId, entry.turnIndex), entry);
+  };
+
+  const revertTurn = (turnIndex: number, path?: string) => {
+    const entry = changesByTurn[turnIndex];
+    if (!entry || !entry.endTree) return Promise.resolve(false);
+    const endTree = entry.endTree;
+    const key = getConversationTurnKey(entry.cwd, entry.conversationId, entry.turnIndex);
+    const remainingPaths = (entry.status?.files ?? [])
+      .map((file) => file.path)
+      .filter((filePath) => filePath !== path);
+    return revertGitSnapshot(entry.cwd, entry.baselineTree, endTree, path ?? null)
+      .then(() => getGitSnapshotStatusScoped(entry.cwd, entry.baselineTree, endTree, remainingPaths))
+      .then((status) => {
+        commitEntry(key, { ...entry, status: getConversationChanges(status) });
+        return true;
+      })
+      .catch(() => false);
   };
 
   function refreshEntry(key: string, entry: ConversationTurnChanges) {
@@ -99,16 +124,41 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
       .catch(() => undefined);
   }
 
+  function refreshCompletedTurn(key: string, entry: ConversationTurnChanges) {
+    if (!entry.endTree) return;
+    const requestVersion = (requestVersionsRef.current.get(key) ?? 0) + 1;
+    requestVersionsRef.current.set(key, requestVersion);
+    /* 刷新同样限定在本回合剩余变更范围内，避免把其他回合的变更混进来 */
+    const paths = (entry.status?.files ?? []).map((file) => file.path);
+    getGitSnapshotStatusScoped(entry.cwd, entry.baselineTree, entry.endTree, paths)
+      .then((status) => {
+        if (!mountedRef.current || requestVersionsRef.current.get(key) !== requestVersion) return;
+        commitEntry(key, { ...entry, status: getConversationChanges(status) });
+      })
+      .catch(() => undefined);
+  }
+
   function settleEntry(key: string, entry: ConversationTurnChanges) {
     if (settlingRef.current.has(key)) return;
     settlingRef.current.add(key);
     const requestVersion = (requestVersionsRef.current.get(key) ?? 0) + 1;
     requestVersionsRef.current.set(key, requestVersion);
 
-    getGitSnapshotStatus(entry.cwd, entry.baselineTree)
-      .then((status) => {
+    captureGitSnapshot(entry.cwd)
+      .then((endTree) => {
+        if (!endTree) throw new Error("无法建立本回合结束快照");
+        return getGitSnapshotStatusBetween(entry.cwd, entry.baselineTree, endTree)
+          .then((status) => ({ endTree, status }));
+      })
+      .then(({ endTree, status }) => {
         if (!mountedRef.current || requestVersionsRef.current.get(key) !== requestVersion) return;
-        commitEntry(key, { ...entry, phase: "completed", completedAt: Date.now(), status: getConversationChanges(status) });
+        commitEntry(key, {
+          ...entry,
+          phase: "completed",
+          completedAt: Date.now(),
+          endTree,
+          status: getConversationChanges(status),
+        });
       })
       .catch(() => {
         if (!mountedRef.current || requestVersionsRef.current.get(key) !== requestVersion) return;
@@ -122,11 +172,11 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
     changesRef.current = next;
     setChanges(next);
     if (entry.phase === "completed") {
-      saveConversationTurnChanges(next).forEach((evicted) => {
-        releaseGitSnapshot(evicted.cwd, evicted.baselineTree).catch(() => undefined);
+      saveConversationTurnChanges(next).forEach(({ cwd: snapshotCwd, tree }) => {
+        releaseGitSnapshot(snapshotCwd, tree).catch(() => undefined);
       });
     }
   }
 
-  return { changesByTurn, startTurn, refreshTurn };
+  return { changesByTurn, startTurn, refreshTurn, revertTurn };
 }

@@ -25,7 +25,7 @@ export default function WorkspacePage({ onOpenSettings }: { onOpenSettings: () =
     const change = conversationChanges.changesByTurn[turnIndex];
     if (!change) return;
     setInspectorTab("git");
-    inspector.openDiff(path, change.baselineTree);
+    inspector.openDiff(path, change.baselineTree, change.endTree ?? undefined);
   };
 
   const sendMessage = () => workspace.sendMessage((turn) => conversationChanges.startTurn({
@@ -88,6 +88,7 @@ export default function WorkspacePage({ onOpenSettings }: { onOpenSettings: () =
             onViewChanges={openChanges}
             onRefreshChanges={conversationChanges.refreshTurn}
             onPreviewChange={previewChange}
+            onRevertChange={conversationChanges.revertTurn}
             activeExtensionRequest={workspace.activeExtensionRequest}
             extensionNotifications={workspace.extensionNotifications}
             extensionStatuses={workspace.extensionStatuses}

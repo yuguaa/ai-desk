@@ -12,6 +12,21 @@ const bridge = vi.hoisted(() => ({
     deletions: 2,
     files: [{ path: "src/App.tsx", code: "M " }],
   })),
+  getGitSnapshotStatusBetween: vi.fn(() => Promise.resolve({
+    branch: "main",
+    clean: false,
+    additions: 3,
+    deletions: 1,
+    files: [{ path: "src/App.tsx", code: "M" }],
+  })),
+  getGitSnapshotStatusScoped: vi.fn((_cwd: string, _baseline: string, _end: string, paths: string[]) => Promise.resolve({
+    branch: "main",
+    clean: paths.length === 0,
+    additions: paths.length ? 1 : 0,
+    deletions: 0,
+    files: paths.map((path) => ({ path, code: "M" })),
+  })),
+  revertGitSnapshot: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("@/lib/workspace-bridge", () => bridge);
@@ -28,6 +43,9 @@ beforeEach(() => {
   localStorage.clear();
   bridge.captureGitSnapshot.mockClear();
   bridge.getGitSnapshotStatus.mockClear();
+  bridge.getGitSnapshotStatusBetween.mockClear();
+  bridge.getGitSnapshotStatusScoped.mockClear();
+  bridge.revertGitSnapshot.mockClear();
 });
 
 afterEach(() => {
@@ -40,16 +58,14 @@ afterEach(() => {
 });
 
 describe("useConversationChanges", () => {
-  it("按单个回合快照刷新，并在回合结束后冻结结果", async () => {
+  it("运行期实时刷新，结束后冻结为本回合快照差异", async () => {
     await renderTracker({ c1: 0 });
 
     await act(async () => {
       await tracker?.startTurn({ cwd: "/demo", conversationId: "c1", turnIndex: 0, prompt: "修改当前页面" });
     });
 
-    expect(tracker?.changesByTurn[0]).toMatchObject({ phase: "running", baselineTree: "tree-0" });
-
-    act(() => tracker?.refreshTurn(0));
+    expect(tracker?.changesByTurn[0]).toMatchObject({ phase: "running", baselineTree: "tree-0", endTree: null });
 
     await vi.waitFor(() => {
       expect(tracker?.changesByTurn[0]?.status).toMatchObject({ additions: 5, deletions: 2, files: [{ path: "src/App.tsx", code: "M" }] });
@@ -57,9 +73,14 @@ describe("useConversationChanges", () => {
 
     await renderTracker({});
     await vi.waitFor(() => {
-      expect(tracker?.changesByTurn[0]?.phase).toBe("completed");
+      expect(tracker?.changesByTurn[0]).toMatchObject({
+        phase: "completed",
+        endTree: "tree-0",
+        status: { additions: 3, deletions: 1, files: [{ path: "src/App.tsx", code: "M" }] },
+      });
     });
 
+    expect(bridge.getGitSnapshotStatusBetween).toHaveBeenCalledWith("/demo", "tree-0", "tree-0");
     expect(JSON.parse(localStorage.getItem("ai-desk.conversation-turn-changes") ?? "{}")).toHaveProperty("/demo::c1::0");
   });
 
@@ -79,6 +100,35 @@ describe("useConversationChanges", () => {
     });
 
     expect(bridge.getGitSnapshotStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("撤销全部后状态清空，单个撤销仅移除对应文件", async () => {
+    await renderTracker({ c1: 0 });
+
+    await act(async () => {
+      await tracker?.startTurn({ cwd: "/demo", conversationId: "c1", turnIndex: 0, prompt: "修改当前页面" });
+    });
+    await renderTracker({});
+    await vi.waitFor(() => {
+      expect(tracker?.changesByTurn[0]?.phase).toBe("completed");
+    });
+
+    await act(async () => {
+      const ok = await tracker?.revertTurn(0, "src/App.tsx");
+      expect(ok).toBe(true);
+    });
+
+    expect(bridge.revertGitSnapshot).toHaveBeenCalledWith("/demo", "tree-0", "tree-0", "src/App.tsx");
+    await vi.waitFor(() => {
+      expect(tracker?.changesByTurn[0]?.status).toBeNull();
+    });
+
+    await act(async () => {
+      const ok = await tracker?.revertTurn(0);
+      expect(ok).toBe(true);
+    });
+
+    expect(bridge.revertGitSnapshot).toHaveBeenLastCalledWith("/demo", "tree-0", "tree-0", null);
   });
 });
 

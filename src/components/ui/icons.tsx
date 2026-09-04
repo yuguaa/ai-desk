@@ -66,6 +66,7 @@ import {
   Terminal as TerminalIcon,
   Trash2 as Trash2Icon,
   TriangleAlert as TriangleAlertIcon,
+  Undo2 as Undo2Icon,
   UserRound as UserRoundIcon,
   X as XIcon,
   type LucideIcon,
@@ -166,6 +167,7 @@ export const Sun = icon(SunIcon);
 export const Terminal = icon(TerminalIcon);
 export const Trash2 = icon(Trash2Icon);
 export const TriangleAlert = icon(TriangleAlertIcon);
+export const Undo2 = icon(Undo2Icon);
 export const UserRound = icon(UserRoundIcon);
 export const X = icon(XIcon);
 export const ZoomIn = icon(MoveDiagonal);

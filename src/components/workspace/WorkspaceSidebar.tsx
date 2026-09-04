@@ -8,6 +8,8 @@ import { SidebarIconButton } from "@/components/workspace/SidebarIconButton";
 import { cn } from "@/lib/utils";
 import type { ConversationRecord, Project } from "@/types/workspace";
 
+const CONVERSATION_PAGE_SIZE = 5;
+
 export function WorkspaceSidebar({ projects, conversations, pinnedConversationIds, activeProjectId, activeConversationId, processes, completedConversationIds, isLoading, onOpenSettings, onRefresh, onNewProject, onRemoveProject, onNewConversation, onArchiveConversation, onRenameConversation, onPinConversation, onSelectProject, onSelectConversation }: {
   projects: Project[];
   conversations: ConversationRecord[];
@@ -29,6 +31,7 @@ export function WorkspaceSidebar({ projects, conversations, pinnedConversationId
   onSelectConversation: (conversation: ConversationRecord) => void;
 }) {
   const [collapsedProjects, setCollapsedProjects] = useState<string[]>([]);
+  const [visibleConversationCounts, setVisibleConversationCounts] = useState<Record<string, number>>({});
 
   const toggleProject = (projectId: string) => {
     setCollapsedProjects((items) => items.includes(projectId) ? items.filter((id) => id !== projectId) : [...items, projectId]);
@@ -51,6 +54,9 @@ export function WorkspaceSidebar({ projects, conversations, pinnedConversationId
             const isActive = activeProjectId === project.id;
             const isCollapsed = collapsedProjects.includes(project.id);
             const isBusy = projectConversations.some((conversation) => processes[conversation.id]?.busy);
+            const visibleConversationCount = visibleConversationCounts[project.id] ?? CONVERSATION_PAGE_SIZE;
+            const visibleProjectConversations = projectConversations.slice(0, visibleConversationCount);
+            const hasMoreConversations = visibleProjectConversations.length < projectConversations.length;
             return (
               <div key={project.id} className="min-w-0">
                 <div className={cn("group/project relative flex h-8 min-w-0 items-center gap-0.5 overflow-hidden rounded-[var(--radius-sm)] text-[var(--font-size-12-5)] transition-[background-color,color] duration-[var(--motion-fast)] hover:bg-[var(--bg-hover)] focus-within:bg-[var(--bg-hover)]", isActive ? "text-[var(--accent)]" : "text-[var(--text-secondary)]")}>
@@ -67,9 +73,12 @@ export function WorkspaceSidebar({ projects, conversations, pinnedConversationId
                 {!isCollapsed && (
                   <div className="ml-5 mt-0.5 min-w-0 border-l border-[var(--border-subtle)] pl-1">
                     {projectConversations.length ? (
-                      <div data-slot="project-conversation-list" className="max-h-[17.5rem] overflow-y-auto overscroll-contain">
-                        {projectConversations.map((conversation) => <ConversationNav key={conversation.id} conversation={conversation} selected={activeConversationId === conversation.id} pinned={pinnedConversationIds.includes(conversation.id)} busy={Boolean(processes[conversation.id]?.busy)} completed={completedConversationIds.includes(conversation.id)} onClick={() => onSelectConversation(conversation)} onArchive={() => onArchiveConversation(conversation.id)} onPin={(pinned) => onPinConversation(conversation.id, pinned)} onRename={() => { const name = window.prompt("重命名会话", conversation.title)?.trim(); if (name) onRenameConversation(conversation.id, name); }} />)}
-                      </div>
+                      <>
+                        <div data-slot="project-conversation-list">
+                          {visibleProjectConversations.map((conversation) => <ConversationNav key={conversation.id} conversation={conversation} selected={activeConversationId === conversation.id} pinned={pinnedConversationIds.includes(conversation.id)} busy={Boolean(processes[conversation.id]?.busy)} completed={completedConversationIds.includes(conversation.id)} onClick={() => onSelectConversation(conversation)} onArchive={() => onArchiveConversation(conversation.id)} onPin={(pinned) => onPinConversation(conversation.id, pinned)} onRename={() => { const name = window.prompt("重命名会话", conversation.title)?.trim(); if (name) onRenameConversation(conversation.id, name); }} />)}
+                        </div>
+                        {hasMoreConversations && <Button type="button" variant="ghost" className="mt-0.5 h-6 w-full justify-center gap-1 px-2 text-[var(--font-size-10-5)] font-normal text-[var(--text-tertiary)]" aria-label={`展开 ${project.name} 的更多对话`} onClick={() => setVisibleConversationCounts((counts) => ({ ...counts, [project.id]: Math.min(visibleConversationCount + CONVERSATION_PAGE_SIZE, projectConversations.length) }))}><ChevronDown size={12} />展开更多</Button>}
+                      </>
                     ) : (
                       <p className="px-2 py-1.5 text-[var(--font-size-10-5)] text-[var(--text-tertiary)]">还没有对话</p>
                     )}
@@ -91,8 +100,8 @@ function ConversationNav({ conversation, selected, pinned, busy, completed, onCl
   return <ContextMenu>
     <ContextMenuTrigger asChild>
       <div className={cn("group/conversation relative flex h-7 w-full min-w-0 items-center overflow-hidden rounded-[var(--radius-sm)] transition-[background-color,color] duration-[var(--motion-fast)]", selected ? "bg-[var(--accent-tint)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] focus-within:bg-[var(--bg-hover)]")}>
-        <Button type="button" variant="ghost" className="h-7 w-full min-w-0 justify-start gap-1.5 overflow-hidden rounded-none px-2 text-left text-[var(--font-size-12)] font-normal text-inherit hover:bg-transparent hover:text-inherit active:scale-100" onClick={onClick} title={conversation.title}><MessageSquare size={13} className={selected ? "text-[var(--accent)]" : "text-[var(--text-tertiary)]"} />{pinned && <Pin size={12} title="已置顶" className="text-[var(--text-tertiary)]" />}<span data-slot="conversation-title" className="min-w-0 flex-1 truncate">{conversation.title}</span>{(busy || completed) && <span data-slot="conversation-status" className="grid size-3 shrink-0 place-items-center">{busy ? <Spinner className="size-3 text-[var(--accent)]" /> : <span className="size-1.5 rounded-full bg-[var(--accent)]" role="status" aria-label="执行完成，点击查看" />}</span>}</Button>
-        <div className={cn("invisible pointer-events-none absolute inset-y-0 right-0 z-10 flex items-center pr-0.5 opacity-0 transition-opacity duration-[var(--motion-fast)] group-hover/conversation:visible group-hover/conversation:pointer-events-auto group-hover/conversation:opacity-100 group-focus-within/conversation:visible group-focus-within/conversation:pointer-events-auto group-focus-within/conversation:opacity-100", selected ? "bg-[var(--accent-tint)]" : "bg-[var(--bg-hover)]")}>
+        <Button type="button" variant="ghost" className="h-7 w-full min-w-0 justify-start gap-1.5 overflow-hidden rounded-none px-2 text-left text-[var(--font-size-12)] font-normal text-inherit hover:bg-transparent hover:text-inherit active:scale-100" onClick={onClick} title={conversation.title}><MessageSquare size={13} className={selected ? "text-[var(--accent)]" : "text-[var(--text-tertiary)]"} />{pinned && <Pin size={12} title="已置顶" className="text-[var(--text-tertiary)]" />}<span data-slot="conversation-title" className="min-w-0 flex-1 truncate">{conversation.title}</span>{(busy || completed) && <span data-slot="conversation-status" className="grid size-3 shrink-0 place-items-center transition-opacity duration-[var(--motion-fast)] group-hover/conversation:opacity-0 group-focus-within/conversation:opacity-0">{busy ? <Spinner className="size-3 text-[var(--accent)]" /> : <span className="size-1.5 rounded-full bg-[var(--accent)]" role="status" aria-label="执行完成，点击查看" />}</span>}</Button>
+        <div className={cn("invisible pointer-events-none absolute inset-y-0 right-0 z-20 flex items-center pr-0.5 opacity-0 transition-opacity duration-[var(--motion-fast)] group-hover/conversation:visible group-hover/conversation:pointer-events-auto group-hover/conversation:opacity-100 group-focus-within/conversation:visible group-focus-within/conversation:pointer-events-auto group-focus-within/conversation:opacity-100", selected ? "bg-[var(--accent-tint)]" : "bg-[var(--bg-hover)]")}>
           <SidebarIconButton label={pinned ? "取消置顶会话" : "置顶会话"} className={cn("size-5", pinned && "text-[var(--accent)]")} onClick={() => onPin(!pinned)}><Pin size={12} /></SidebarIconButton>
           <SidebarIconButton label={busy ? "运行中，无法归档" : "归档会话"} className="size-5" disabled={busy} onClick={onArchive}><Archive size={12} /></SidebarIconButton>
         </div>

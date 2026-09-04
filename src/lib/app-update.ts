@@ -4,7 +4,6 @@ import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updat
 export type AppUpdateInfo = {
   currentVersion: string;
   latestVersion: string;
-  updateAvailable: boolean;
   update: Update | null;
 };
 
@@ -12,11 +11,18 @@ export function checkForAppUpdate(currentVersion: string): Promise<AppUpdateInfo
   return check().then((update) => ({
     currentVersion,
     latestVersion: update?.version ?? currentVersion,
-    updateAvailable: update !== null,
     update,
   }));
 }
 
-export function installAppUpdate(update: Update, onProgress?: (event: DownloadEvent) => void): Promise<void> {
-  return update.downloadAndInstall(onProgress).then(() => relaunch());
+export function downloadAppUpdate(update: Update, onProgress?: (event: DownloadEvent) => void): Promise<void> {
+  return update.download(onProgress);
+}
+
+export function installDownloadedAppUpdate(update: Update): Promise<void> {
+  return update.install();
+}
+
+export function relaunchApp(): Promise<void> {
+  return relaunch();
 }

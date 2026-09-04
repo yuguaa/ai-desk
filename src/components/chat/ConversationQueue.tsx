@@ -30,7 +30,7 @@ export function ConversationQueue({ turns, editingTurnId, onReorder, onRemove, o
     onReorder?.(turns[turnIndex].id, target.id);
   };
 
-  return <div data-slot="conversation-queue" className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface-raised)] px-2.5 py-2">
+  return <div data-slot="conversation-queue" className="px-2.5 py-2">
     <div className="mb-1.5 flex items-center gap-1.5 px-1 text-[var(--font-size-10-5)] font-medium text-[var(--text-tertiary)]">
       <LayoutList size={12} />
       <span>待执行队列</span>

@@ -6,6 +6,7 @@ const handlers = {
   onViewChanges: vi.fn(),
   onRefresh: vi.fn(),
   onPreviewChange: vi.fn(),
+  onRevert: vi.fn(),
 };
 
 describe("ConversationChangesBar", () => {
@@ -17,6 +18,7 @@ describe("ConversationChangesBar", () => {
         turnIndex: 0,
         promptFingerprint: "4:test",
         baselineTree: "tree-0",
+        endTree: null,
         phase: "completed",
         status: null,
       }}
@@ -35,6 +37,7 @@ describe("ConversationChangesBar", () => {
         turnIndex: 0,
         promptFingerprint: "4:test",
         baselineTree: "tree-0",
+        endTree: "tree-0-end",
         phase: "completed",
         status: {
           branch: "main",

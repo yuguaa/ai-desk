@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { getVersion } from "@tauri-apps/api/app";
 import { ArrowLeft, Check, Download, LoaderCircle, Monitor, Moon, RefreshCw, RotateCcw, Settings, Sun, TriangleAlert } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { ColorInput } from "@/components/ui/color-input";
@@ -10,26 +9,16 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RuntimeBadge } from "@/components/workspace/RuntimeBadge";
 import { mascotImageFor, Mascot } from "@/components/mascot/Mascot";
-import { checkForAppUpdate, installAppUpdate } from "@/lib/app-update";
-import { type Update } from "@tauri-apps/plugin-updater";
+import type { AppUpdateController, AppUpdateState } from "@/hooks/use-app-update";
 import { ACCENT_OPTIONS, FONT_OPTIONS, MASCOT_OPTIONS, MASCOT_SOURCE_OPTIONS, normalizeHexColor, normalizeMascotImageUrl, THEME_OPTIONS, type AccentColor, type AppSettings, type FontFamilyPreference, type MascotSource, type ThemePreference } from "@/lib/app-settings";
 import { isMacTauriRuntime } from "@/lib/pi-bridge";
 import { cn } from "@/lib/utils";
 
 const themeIcons: Record<ThemePreference, typeof Monitor> = { system: Monitor, dark: Moon, light: Sun };
-type UpdateCheckState =
-  | { status: "idle" }
-  | { status: "checking" }
-  | { status: "latest"; latestVersion: string }
-  | { status: "available"; latestVersion: string; update: Update }
-  | { status: "installing"; latestVersion: string; progress: number | null }
-  | { status: "error" };
 
-export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onReset }: { settings: AppSettings; isTauri: boolean; onBack: () => void; onUpdate: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void; onReset: () => void }) {
+export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onUpdate, onReset }: { settings: AppSettings; appUpdate: AppUpdateController; isTauri: boolean; onBack: () => void; onUpdate: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void; onReset: () => void }) {
   const [saved, setSaved] = useState(false);
   const [customHex, setCustomHex] = useState(settings.customAccentColor);
-  const [currentVersion, setCurrentVersion] = useState<string | null>(null);
-  const [updateCheck, setUpdateCheck] = useState<UpdateCheckState>({ status: "idle" });
   const immersive = isMacTauriRuntime();
   const customMascotUrl = normalizeMascotImageUrl(settings.mascotImageUrl);
   const invalidMascotUrl = settings.mascotImageUrl.length > 0 && !customMascotUrl;
@@ -37,14 +26,6 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
   const activeMascotSource = MASCOT_SOURCE_OPTIONS.find((option) => option.value === settings.mascotSource) ?? MASCOT_SOURCE_OPTIONS[0];
 
   useEffect(() => setCustomHex(settings.customAccentColor), [settings.customAccentColor]);
-  useEffect(() => {
-    let active = true;
-    if (!isTauri) return () => { active = false; };
-    getVersion()
-      .then((version) => { if (active) setCurrentVersion(version); })
-      .catch(() => { if (active) setUpdateCheck({ status: "error" }); });
-    return () => { active = false; };
-  }, [isTauri]);
 
   const change = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     onUpdate(key, value);
@@ -68,37 +49,7 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
     saveIndicator();
   };
 
-  const checkUpdate = () => {
-    if (!currentVersion || updateCheck.status === "checking") return;
-    setUpdateCheck({ status: "checking" });
-    checkForAppUpdate(currentVersion)
-      .then((result) => setUpdateCheck(result.update
-        ? { status: "available", latestVersion: result.latestVersion, update: result.update }
-        : { status: "latest", latestVersion: result.latestVersion }))
-      .catch(() => setUpdateCheck({ status: "error" }));
-  };
-
-  const installUpdate = () => {
-    if (updateCheck.status !== "available") return;
-    const { latestVersion, update } = updateCheck;
-    let totalBytes: number | null = null;
-    let downloadedBytes = 0;
-    setUpdateCheck({ status: "installing", latestVersion, progress: null });
-    installAppUpdate(update, (event) => {
-      if (event.event === "Started") {
-        totalBytes = event.data.contentLength ?? null;
-        setUpdateCheck({ status: "installing", latestVersion, progress: totalBytes === null ? null : 0 });
-      } else if (event.event === "Progress") {
-        downloadedBytes += event.data.chunkLength;
-        const progress = totalBytes === null
-          ? null
-          : Math.min(100, Math.round((downloadedBytes / totalBytes) * 100));
-        setUpdateCheck({ status: "installing", latestVersion, progress });
-      }
-    }).catch(() => setUpdateCheck({ status: "error" }));
-  };
-
-  const updatePresentation = appUpdatePresentation(isTauri, currentVersion, updateCheck);
+  const updatePresentation = appUpdatePresentation(isTauri, appUpdate.currentVersion, appUpdate.state);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-workspace)] text-[var(--text-primary)]">
@@ -186,22 +137,32 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
               <SettingRow label="应用版本" description="手动检查 GitHub 已发布版本">
                 <div className="flex w-full flex-col items-end gap-1">
                   <div className="flex items-center justify-end gap-2">
-                    <span data-slot="current-app-version" className="min-w-16 text-right font-mono text-[var(--font-size-10-5)] tabular-nums text-[var(--text-secondary)]">{currentVersion ? `v${currentVersion}` : "—"}</span>
-                    <Button type="button" variant="outline" size="sm" aria-label="检查应用更新" className="w-24" disabled={!isTauri || !currentVersion || updateCheck.status === "checking" || updateCheck.status === "installing"} onClick={checkUpdate}>
-                      {updateCheck.status === "checking" ? <LoaderCircle size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                      {updateCheck.status === "checking" ? "检查中" : "检查更新"}
+                    <span data-slot="current-app-version" className="min-w-16 text-right font-mono text-[var(--font-size-10-5)] tabular-nums text-[var(--text-secondary)]">{appUpdate.currentVersion ? `v${appUpdate.currentVersion}` : "—"}</span>
+                    <Button type="button" variant="outline" size="sm" aria-label="检查应用更新" className="w-24" disabled={!isTauri || !appUpdate.canCheck} onClick={appUpdate.checkUpdate}>
+                      {appUpdate.state.status === "checking" ? <LoaderCircle size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                      {appUpdate.state.status === "checking" ? "检查中" : "检查更新"}
                     </Button>
                   </div>
-                  {updateCheck.status === "available" && (
-                    <Button type="button" variant="default" size="sm" aria-label="立即更新应用" className="w-24" onClick={installUpdate}>
-                      <Download size={13} />立即更新
+                  {(appUpdate.state.status === "available" || appUpdate.state.status === "downloadFailed") && (
+                    <Button type="button" variant="default" size="sm" aria-label="下载应用更新" className="w-24" onClick={appUpdate.downloadUpdate}>
+                      <Download size={13} />下载更新
+                    </Button>
+                  )}
+                  {(appUpdate.state.status === "downloaded" || appUpdate.state.status === "installFailed") && (
+                    <Button type="button" variant="default" size="sm" aria-label="安装并重启应用" className="w-28" onClick={appUpdate.installUpdate}>
+                      <RefreshCw size={13} />安装并重启
+                    </Button>
+                  )}
+                  {appUpdate.state.status === "restartRequired" && (
+                    <Button type="button" variant="default" size="sm" aria-label="重新启动应用" className="w-28" onClick={appUpdate.restartApp}>
+                      <RefreshCw size={13} />重新启动
                     </Button>
                   )}
                   <div role="status" aria-live="polite" className={cn("flex min-h-4 items-center gap-1 text-right text-[var(--font-size-9-5)]", updatePresentation.tone)}>
-                    {updateCheck.status === "latest" && <Check size={11} />}
-                    {updateCheck.status === "available" && <RefreshCw size={11} />}
-                    {updateCheck.status === "installing" && <LoaderCircle size={11} className="animate-spin" />}
-                    {updateCheck.status === "error" && <TriangleAlert size={11} />}
+                    {(appUpdate.state.status === "latest" || appUpdate.state.status === "downloaded") && <Check size={11} />}
+                    {appUpdate.state.status === "available" && <RefreshCw size={11} />}
+                    {(appUpdate.state.status === "downloading" || appUpdate.state.status === "installing" || appUpdate.state.status === "restarting") && <LoaderCircle size={11} className="animate-spin" />}
+                    {(appUpdate.state.status === "versionError" || appUpdate.state.status === "checkFailed" || appUpdate.state.status === "downloadFailed" || appUpdate.state.status === "installFailed" || appUpdate.state.status === "restartRequired") && <TriangleAlert size={11} />}
                     <span>{updatePresentation.message}</span>
                   </div>
                 </div>
@@ -215,9 +176,9 @@ export default function SettingsPage({ settings, isTauri, onBack, onUpdate, onRe
   );
 }
 
-function appUpdatePresentation(isTauri: boolean, currentVersion: string | null, state: UpdateCheckState) {
+function appUpdatePresentation(isTauri: boolean, currentVersion: string | null, state: AppUpdateState) {
   if (!isTauri) return { message: "仅桌面安装版支持检测更新", tone: "text-[var(--text-tertiary)]" };
-  if (!currentVersion) return state.status === "error"
+  if (!currentVersion) return state.status === "versionError"
     ? { message: "无法读取当前应用版本", tone: "text-[var(--error)]" }
     : { message: "正在读取当前版本…", tone: "text-[var(--text-tertiary)]" };
 
@@ -226,11 +187,23 @@ function appUpdatePresentation(isTauri: boolean, currentVersion: string | null, 
       return { message: "正在检查更新…", tone: "text-[var(--text-tertiary)]" };
     case "available":
       return { message: `发现新版本 v${state.latestVersion}`, tone: "text-[var(--accent)]" };
+    case "downloading":
+      return { message: state.progress === null ? "正在下载更新…" : `正在下载更新 ${state.progress}%`, tone: "text-[var(--accent)]" };
+    case "downloadFailed":
+      return { message: "下载更新失败，请重试", tone: "text-[var(--error)]" };
+    case "downloaded":
+      return { message: `v${state.latestVersion} 已下载，等待安装`, tone: "text-[var(--success)]" };
     case "installing":
-      return { message: state.progress === null ? "正在安装更新…" : `正在下载更新 ${state.progress}%`, tone: "text-[var(--accent)]" };
+      return { message: "正在安装更新…", tone: "text-[var(--accent)]" };
+    case "installFailed":
+      return { message: "安装更新失败，请重试", tone: "text-[var(--error)]" };
+    case "restarting":
+      return { message: "正在重新启动应用…", tone: "text-[var(--accent)]" };
+    case "restartRequired":
+      return { message: "更新已安装，请重新启动应用", tone: "text-[var(--error)]" };
     case "latest":
       return { message: `当前已是最新版本（v${state.latestVersion}）`, tone: "text-[var(--success)]" };
-    case "error":
+    case "checkFailed":
       return { message: "检查更新失败，请稍后重试", tone: "text-[var(--error)]" };
     default:
       return { message: "点击按钮检查已发布版本", tone: "text-[var(--text-tertiary)]" };
