@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppTopbar } from "@/components/workspace/AppTopbar";
@@ -15,23 +15,46 @@ export default function WorkspacePage({ onOpenSettings }: { onOpenSettings: () =
   const inspector = useWorkspaceInspector(workspace.activeProject.path);
   const conversationChanges = useConversationChanges(workspace.activeProject.path, workspace.activeConversationId, workspace.activeTurnIndexes);
   const [inspectorTab, setInspectorTab] = useState<"files" | "git">("files");
+  const workspaceRef = useRef(workspace);
+  const inspectorRef = useRef(inspector);
+  const conversationChangesRef = useRef(conversationChanges);
+  workspaceRef.current = workspace;
+  inspectorRef.current = inspector;
+  conversationChangesRef.current = conversationChanges;
   const isBusy = Boolean(
     workspace.processes[workspace.activeConversationId]?.busy
     || workspace.activeTurnIndexes[workspace.activeConversationId] !== undefined,
   );
 
-  const openChanges = () => setInspectorTab("git");
-  const previewChange = (turnIndex: number, path: string) => {
-    const change = conversationChanges.changesByTurn[turnIndex];
+  const openChanges = useCallback(() => setInspectorTab("git"), []);
+  const previewChange = useCallback((turnIndex: number, path: string) => {
+    const change = conversationChangesRef.current.changesByTurn[turnIndex];
     if (!change) return;
     setInspectorTab("git");
-    inspector.openDiff(path, change.baselineTree, change.endTree ?? undefined);
-  };
+    inspectorRef.current.openDiff(path, change.baselineTree, change.endTree ?? undefined);
+  }, []);
 
-  const sendMessage = () => workspace.sendMessage((turn) => conversationChanges.startTurn({
+  const sendMessage = useCallback(() => workspaceRef.current.sendMessage((turn) => conversationChangesRef.current.startTurn({
     ...turn,
-    cwd: workspace.activeProject.path,
-  }));
+    cwd: workspaceRef.current.activeProject.path,
+  })), []);
+
+  const onRefreshProjects = useCallback(() => workspaceRef.current.refreshProjects(), []);
+  const onNewProject = useCallback(() => workspaceRef.current.createProject(), []);
+  const onRemoveProject = useCallback((projectId: string) => workspaceRef.current.removeProject(projectId), []);
+  const onNewConversation = useCallback((projectId?: string) => workspaceRef.current.createConversation(projectId), []);
+  const onArchiveConversation = useCallback((conversationId: string) => workspaceRef.current.archiveConversation(conversationId), []);
+  const onRenameConversation = useCallback((conversationId: string, name: string) => workspaceRef.current.renameConversation(conversationId, name), []);
+  const onPinConversation = useCallback((conversationId: string, pinned: boolean) => workspaceRef.current.setConversationPinned(conversationId, pinned), []);
+  const onSetProjectCollapsed = useCallback((projectId: string, collapsed: boolean) => workspaceRef.current.setProjectCollapsed(projectId, collapsed), []);
+  const onSelectProject = useCallback((projectId: string) => workspaceRef.current.selectProject(projectId), []);
+  const onSelectConversation = useCallback((conversation: Parameters<typeof workspace.selectConversation>[0]) => workspaceRef.current.selectConversation(conversation), []);
+  const onRefreshInspector = useCallback(() => inspectorRef.current.refresh(), []);
+  const onOpenFile = useCallback((path: string) => inspectorRef.current.openFile(path), []);
+  const onOpenDiff = useCallback((path: string, baselineTree?: string, endTree?: string) => inspectorRef.current.openDiff(path, baselineTree, endTree), []);
+  const onClosePreview = useCallback(() => inspectorRef.current.closePreview(), []);
+  const onGitAction = useCallback((action: Parameters<typeof inspector.runGitAction>[0]) => inspectorRef.current.runGitAction(action), []);
+  const onGitNoticeDismiss = useCallback(() => inspectorRef.current.dismissGitNotice(), []);
 
   return <TooltipProvider><div className="flex h-screen min-h-[640px] min-w-[960px] flex-col overflow-hidden bg-[var(--bg-window)] text-[var(--text-primary)]">
     <AppTopbar />
@@ -41,21 +64,23 @@ export default function WorkspacePage({ onOpenSettings }: { onOpenSettings: () =
           projects={workspace.projects}
           conversations={workspace.conversations}
           pinnedConversationIds={workspace.pinnedConversationIds}
+          collapsedProjectIds={workspace.collapsedProjectIds}
           activeProjectId={workspace.activeProject.id}
           activeConversationId={workspace.activeConversationId}
           processes={workspace.processes}
           completedConversationIds={workspace.completedConversationIds}
           isLoading={workspace.isLoading}
           onOpenSettings={onOpenSettings}
-          onRefresh={workspace.refreshProjects}
-          onNewProject={workspace.createProject}
-          onRemoveProject={workspace.removeProject}
-          onNewConversation={workspace.createConversation}
-          onArchiveConversation={workspace.archiveConversation}
-          onRenameConversation={workspace.renameConversation}
-          onPinConversation={workspace.setConversationPinned}
-          onSelectProject={workspace.selectProject}
-          onSelectConversation={workspace.selectConversation}
+          onRefresh={onRefreshProjects}
+          onNewProject={onNewProject}
+          onRemoveProject={onRemoveProject}
+          onNewConversation={onNewConversation}
+          onArchiveConversation={onArchiveConversation}
+          onRenameConversation={onRenameConversation}
+          onPinConversation={onPinConversation}
+          onSetProjectCollapsed={onSetProjectCollapsed}
+          onSelectProject={onSelectProject}
+          onSelectConversation={onSelectConversation}
         />
       </ResizablePanel>
       <ResizableHandle className="panel-resize-handle z-20" aria-label="调整项目栏宽度" />
@@ -110,12 +135,12 @@ export default function WorkspacePage({ onOpenSettings }: { onOpenSettings: () =
           gitOperation={inspector.gitOperation}
           gitNotice={inspector.gitNotice}
           onTabChange={setInspectorTab}
-          onRefresh={inspector.refresh}
-          onOpenFile={inspector.openFile}
-          onOpenDiff={inspector.openDiff}
-          onClosePreview={inspector.closePreview}
-          onGitAction={inspector.runGitAction}
-          onGitNoticeDismiss={inspector.dismissGitNotice}
+          onRefresh={onRefreshInspector}
+          onOpenFile={onOpenFile}
+          onOpenDiff={onOpenDiff}
+          onClosePreview={onClosePreview}
+          onGitAction={onGitAction}
+          onGitNoticeDismiss={onGitNoticeDismiss}
         />
       </ResizablePanel>
     </ResizablePanelGroup>

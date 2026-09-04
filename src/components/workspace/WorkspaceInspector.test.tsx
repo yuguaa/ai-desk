@@ -30,6 +30,8 @@ describe("WorkspaceInspector", () => {
     const html = renderToStaticMarkup(<TooltipProvider><WorkspaceInspector tab="git" files={[]} gitStatus={{ branch: "main", clean: false, additions: 1, deletions: 1, files: [{ code: " M", path: "src/App.tsx" }] }} preview={{ kind: "text", path: "src/App.tsx", language: "diff", content: "@@ -1 +1 @@\n-old\n+new", mode: "diff" }} selectedPath="src/App.tsx" isLoading={false} error={null} gitOperation={null} gitNotice={null} {...handlers} /></TooltipProvider>);
 
     expect(html).toContain("未暂存的更改");
+    expect(html).toContain('data-slot="git-change-count"');
+    expect(html).toContain(">1</span>");
     expect(html).toContain('aria-current="true"');
     expect(html).toContain("HEAD");
     expect(html).toContain("工作区");
@@ -39,6 +41,12 @@ describe("WorkspaceInspector", () => {
     expect(html).toContain('aria-label="Git 提交信息"');
     expect(html).toMatch(/aria-label="调整预览宽度"[^>]*aria-orientation="vertical"/);
     expect(html).not.toContain("lucide-move-horizontal");
+  });
+
+  it("Git 状态干净时不显示变更数量", () => {
+    const html = renderToStaticMarkup(<TooltipProvider><WorkspaceInspector tab="git" files={[]} gitStatus={{ branch: "main", clean: true, additions: 0, deletions: 0, files: [] }} preview={null} selectedPath={null} isLoading={false} error={null} gitOperation={null} gitNotice={null} {...handlers} /></TooltipProvider>);
+
+    expect(html).not.toContain('data-slot="git-change-count"');
   });
 
   it("在文件列表右侧显示图片预览且不提供复制操作", () => {

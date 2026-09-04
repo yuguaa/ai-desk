@@ -28,10 +28,8 @@ export function ChatPanel({ conversationId, timeline, draft, isBusy, queuedTurns
   };
 
   // 当前轮（最后一条 user 消息之后）是否已有任何 AI 产出，用于区分“链接中/生成中”
-  const lastUserIndex = timeline.map((item) => item.type === "user").lastIndexOf(true);
-  const currentTurnHasOutput = timeline.slice(lastUserIndex + 1).length > 0;
-  // 最后一个用户轮次的序号，仅该轮次在 isBusy 时抑制“已完成”，历史轮次保持可见
-  const lastTurnIndex = timeline.filter((item) => item.type === "user").length - 1;
+  const { lastUserIndex, lastTurnIndex } = getTimelineMeta(timeline);
+  const currentTurnHasOutput = timeline.length > lastUserIndex + 1;
 
   return <div className="flex min-h-0 flex-1 flex-col bg-[var(--bg-workspace)]">
     <ExtensionUiPanel request={activeExtensionRequest} notifications={extensionNotifications} statuses={extensionStatuses} widgets={extensionWidgets} onRespond={onRespondToExtensionUi} />
@@ -56,7 +54,7 @@ export function ChatPanel({ conversationId, timeline, draft, isBusy, queuedTurns
               const matchedChange = currentChange?.promptFingerprint === promptFingerprint ? currentChange : undefined;
               const isTurnEnd = currentTurnIndex >= 0 && (itemIndex === timeline.length - 1 || timeline[itemIndex + 1]?.type === "user");
               const showTurnActions = isTurnEnd && !turnStreaming && !(isBusy && currentTurnIndex === lastTurnIndex);
-              return <div key={item.id} className="contents"><Suspense fallback={<div className="min-h-8" aria-busy="true" />}><TimelineItemView item={item} /></Suspense>{showTurnActions && <div data-slot="turn-actions" className="flex items-center justify-start gap-1.5 py-1"><span className="flex items-center gap-0.5 text-[var(--font-size-10)] font-medium text-[var(--success)]"><Check size={11} />已完成</span><MessageCopyButton text={assistantTexts.join("\n\n")} /><div className="font-mono text-[var(--font-size-9-5)] text-[var(--text-tertiary)]">{turnTime}</div></div>}{isTurnEnd && matchedChange?.phase === "completed" && <ConversationChangesBar change={matchedChange} onViewChanges={onViewChanges} onRefresh={() => onRefreshChanges(currentTurnIndex)} onPreviewChange={(path) => onPreviewChange(currentTurnIndex, path)} onRevert={(path) => onRevertChange(currentTurnIndex, path)} />}</div>;
+              return <div key={item.id} className="timeline-item"><Suspense fallback={<div className="min-h-8" aria-busy="true" />}><TimelineItemView item={item} /></Suspense>{showTurnActions && <div data-slot="turn-actions" className="flex items-center justify-start gap-1.5 py-1"><span className="flex items-center gap-0.5 text-[var(--font-size-10)] font-medium text-[var(--success)]"><Check size={11} />已完成</span><MessageCopyButton text={assistantTexts.join("\n\n")} /><div className="font-mono text-[var(--font-size-9-5)] text-[var(--text-tertiary)]">{turnTime}</div></div>}{isTurnEnd && matchedChange?.phase === "completed" && <ConversationChangesBar change={matchedChange} onViewChanges={onViewChanges} onRefresh={() => onRefreshChanges(currentTurnIndex)} onPreviewChange={(path) => onPreviewChange(currentTurnIndex, path)} onRevert={(path) => onRevertChange(currentTurnIndex, path)} />}</div>;
             })}
             {isBusy && <div data-slot="conversation-status" className="flex items-center gap-1.5 py-1.5 text-[var(--font-size-10-5)] leading-none text-[var(--text-tertiary)]"><Spinner className="size-3 text-[var(--accent)]" />{currentTurnHasOutput ? "生成中…" : "正在连接 Pi 进程…"}</div>}
             {!timeline.length && <div className="grid min-h-[46vh] place-items-center"><div className="max-w-[280px] text-center"><MessageSquarePlus className="mx-auto size-5 text-[var(--text-tertiary)]" /><h2 className="mt-2 text-[var(--font-size-12-5)] font-medium text-[var(--text-secondary)]">开始一个新对话</h2><p className="mt-1 text-[var(--font-size-11-5)] leading-snug text-[var(--text-tertiary)]">选择项目，然后输入要处理的本地任务。</p></div></div>}
@@ -64,6 +62,17 @@ export function ChatPanel({ conversationId, timeline, draft, isBusy, queuedTurns
         </div>
       </Conversation>
     </div>
-    <div data-slot="conversation-composer" className="shrink-0 bg-[var(--bg-workspace)] px-[var(--container-padding)] pb-[var(--container-padding)] pt-[var(--container-padding-tight)]"><div className="conversation-column"><Suspense fallback={<div className="h-[116px] rounded-[var(--radius-composer)] bg-[var(--composer-bg)]" aria-busy="true" />}><PromptInput value={draft} onChange={onDraftChange} onSubmit={sendMessage} onAbort={onAbort} isRunning={isBusy} queuedTurns={queuedTurns} editingQueuedTurnId={editingQueuedTurnId} models={models} selectedModel={selectedModel} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} contextUsage={contextUsage} runtimeAvailable={runtimeAvailable} onModelChange={onModelChange} onThinkingChange={onThinkingChange} onReorderQueuedTurn={onReorderQueuedTurn} onRemoveQueuedTurn={onRemoveQueuedTurn} onSteerQueuedTurn={onSteerQueuedTurn} onEditQueuedTurn={onEditQueuedTurn} /></Suspense></div></div>
+    <div data-slot="conversation-composer" className="shrink-0 px-[var(--container-padding)] pb-[var(--container-padding)] pt-[var(--container-padding-tight)]"><div className="conversation-column"><Suspense fallback={<div className="h-[116px] rounded-[var(--radius-composer)] bg-[var(--composer-bg)]" aria-busy="true" />}><PromptInput value={draft} onChange={onDraftChange} onSubmit={sendMessage} onAbort={onAbort} isRunning={isBusy} queuedTurns={queuedTurns} editingQueuedTurnId={editingQueuedTurnId} models={models} selectedModel={selectedModel} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} contextUsage={contextUsage} runtimeAvailable={runtimeAvailable} onModelChange={onModelChange} onThinkingChange={onThinkingChange} onReorderQueuedTurn={onReorderQueuedTurn} onRemoveQueuedTurn={onRemoveQueuedTurn} onSteerQueuedTurn={onSteerQueuedTurn} onEditQueuedTurn={onEditQueuedTurn} /></Suspense></div></div>
   </div>;
+}
+
+function getTimelineMeta(timeline: TimelineItem[]) {
+  let lastUserIndex = -1;
+  let lastTurnIndex = -1;
+  timeline.forEach((item, index) => {
+    if (item.type !== "user") return;
+    lastUserIndex = index;
+    lastTurnIndex += 1;
+  });
+  return { lastUserIndex, lastTurnIndex };
 }

@@ -57,12 +57,17 @@ describe("SettingsPage", () => {
   });
 
   it("renders a validated custom image source without the built-in grid", () => {
-    const settings = { ...DEFAULT_APP_SETTINGS, mascotSource: "customUrl" as const, mascotImageUrl: "https://example.com/mascot.png" };
+    const settings = { ...DEFAULT_APP_SETTINGS, mascotSource: "customUrl" as const, mascotImageUrls: ["https://example.com/mascot.png", "https://example.com/second.png"], mascotImageUrlIndex: 0 };
     const html = renderToStaticMarkup(<SettingsPage settings={settings} appUpdate={appUpdate} isTauri onBack={vi.fn()} onUpdate={vi.fn()} onReset={vi.fn()} />);
 
-    expect(html).toContain('aria-label="看板娘图片地址"');
+    expect(html).toContain('aria-label="看板娘图片地址 1"');
+    expect(html).toContain('aria-label="看板娘图片地址 2"');
+    expect(html).toContain('aria-label="添加看板娘图片链接"');
     expect(html).toContain('value="https://example.com/mascot.png"');
+    expect(html).toContain('value="https://example.com/second.png"');
     expect(html).toContain('src="https://example.com/mascot.png"');
+    expect(html).toContain("aspect-video");
+    expect(html).toContain("min-[540px]:grid-cols-[184px_minmax(0,1fr)]");
     expect(html).not.toContain("绯红魅影");
     expect((html.match(/data-slot="toggle-group"/g) ?? []).length).toBe(3);
     expect((html.match(/data-slot="toggle-group-item"/g) ?? []).length).toBe(14);

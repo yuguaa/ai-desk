@@ -34,6 +34,7 @@ describe("WorkspaceSidebar", () => {
           projects={[]}
           conversations={[]}
           pinnedConversationIds={[]}
+          collapsedProjectIds={[]}
           activeProjectId=""
           activeConversationId=""
           processes={{}}
@@ -47,6 +48,7 @@ describe("WorkspaceSidebar", () => {
           onArchiveConversation={() => undefined}
           onRenameConversation={() => undefined}
           onPinConversation={() => undefined}
+          onSetProjectCollapsed={() => undefined}
           onSelectProject={() => undefined}
           onSelectConversation={() => undefined}
         /></TooltipProvider>);
@@ -74,6 +76,7 @@ describe("WorkspaceSidebar", () => {
           projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
           conversations={[{ id: "session-1", projectId: "/code/demo", title: "定位会话菜单", preview: "", time: "刚刚" }]}
           pinnedConversationIds={[]}
+          collapsedProjectIds={[]}
           activeProjectId="/code/demo"
           activeConversationId="session-1"
           processes={{}}
@@ -87,6 +90,7 @@ describe("WorkspaceSidebar", () => {
           onArchiveConversation={onArchiveConversation}
           onRenameConversation={() => undefined}
           onPinConversation={() => undefined}
+          onSetProjectCollapsed={() => undefined}
           onSelectProject={() => undefined}
           onSelectConversation={() => undefined}
         /></TooltipProvider>);
@@ -114,6 +118,54 @@ describe("WorkspaceSidebar", () => {
     expect(onArchiveConversation).toHaveBeenCalledOnce();
   });
 
+  it("项目名称切换展开状态", async () => {
+    const onSetProjectCollapsed = vi.fn();
+    const onSelectProject = vi.fn();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    const renderSidebar = (collapsedProjectIds: string[]) => {
+      root?.render(<TooltipProvider><WorkspaceSidebar
+        projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
+        conversations={[]}
+        pinnedConversationIds={[]}
+        collapsedProjectIds={collapsedProjectIds}
+        activeProjectId="/code/demo"
+        activeConversationId=""
+        processes={{}}
+        completedConversationIds={[]}
+        isLoading={false}
+        onOpenSettings={() => undefined}
+        onRefresh={() => undefined}
+        onNewProject={() => undefined}
+        onRemoveProject={() => undefined}
+        onNewConversation={() => undefined}
+        onArchiveConversation={() => undefined}
+        onRenameConversation={() => undefined}
+        onPinConversation={() => undefined}
+        onSetProjectCollapsed={onSetProjectCollapsed}
+        onSelectProject={onSelectProject}
+        onSelectConversation={() => undefined}
+      /></TooltipProvider>);
+    };
+
+    await act(async () => renderSidebar([]));
+    const projectName = container.querySelector<HTMLButtonElement>('button[aria-label="收起项目 demo"]');
+    expect(projectName).not.toBeNull();
+    act(() => projectName?.click());
+    expect(onSetProjectCollapsed).toHaveBeenCalledWith("/code/demo", true);
+    expect(onSelectProject).toHaveBeenCalledWith("/code/demo");
+
+    onSetProjectCollapsed.mockClear();
+    await act(async () => renderSidebar(["/code/demo"]));
+    const collapsedProjectName = container.querySelector<HTMLButtonElement>('button[aria-label="展开项目 demo"]');
+    expect(collapsedProjectName).not.toBeNull();
+    act(() => collapsedProjectName?.click());
+    expect(onSetProjectCollapsed).toHaveBeenCalledWith("/code/demo", false);
+    expect(onSelectProject).toHaveBeenCalledWith("/code/demo");
+  });
+
   it("运行中的会话不允许归档", async () => {
     const onArchiveConversation = vi.fn();
     container = document.createElement("div");
@@ -125,6 +177,7 @@ describe("WorkspaceSidebar", () => {
           projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
           conversations={[{ id: "session-1", projectId: "/code/demo", title: "运行中的会话", preview: "", time: "刚刚" }]}
           pinnedConversationIds={[]}
+          collapsedProjectIds={[]}
           activeProjectId="/code/demo"
           activeConversationId="session-1"
           processes={{ "session-1": { busy: true } }}
@@ -138,6 +191,7 @@ describe("WorkspaceSidebar", () => {
           onArchiveConversation={onArchiveConversation}
           onRenameConversation={() => undefined}
           onPinConversation={() => undefined}
+          onSetProjectCollapsed={() => undefined}
           onSelectProject={() => undefined}
           onSelectConversation={() => undefined}
         /></TooltipProvider>);
@@ -176,6 +230,7 @@ describe("WorkspaceSidebar", () => {
         projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
         conversations={conversations}
         pinnedConversationIds={[]}
+        collapsedProjectIds={[]}
         activeProjectId="/code/demo"
         activeConversationId=""
         processes={{}}
@@ -189,6 +244,7 @@ describe("WorkspaceSidebar", () => {
         onArchiveConversation={() => undefined}
         onRenameConversation={() => undefined}
         onPinConversation={() => undefined}
+        onSetProjectCollapsed={() => undefined}
         onSelectProject={() => undefined}
         onSelectConversation={() => undefined}
       /></TooltipProvider>);
@@ -229,6 +285,7 @@ describe("WorkspaceSidebar", () => {
         ]}
         conversations={conversations}
         pinnedConversationIds={[]}
+        collapsedProjectIds={[]}
         activeProjectId="/code/alpha"
         activeConversationId=""
         processes={{}}
@@ -242,6 +299,7 @@ describe("WorkspaceSidebar", () => {
         onArchiveConversation={() => undefined}
         onRenameConversation={() => undefined}
         onPinConversation={() => undefined}
+        onSetProjectCollapsed={() => undefined}
         onSelectProject={() => undefined}
         onSelectConversation={() => undefined}
       /></TooltipProvider>);
@@ -266,6 +324,7 @@ describe("WorkspaceSidebar", () => {
           projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
           conversations={[{ id: "session-1", projectId: "/code/demo", title: "快捷操作", preview: "", time: "刚刚" }]}
           pinnedConversationIds={[]}
+          collapsedProjectIds={[]}
           activeProjectId="/code/demo"
           activeConversationId="session-1"
           processes={{}}
@@ -279,6 +338,7 @@ describe("WorkspaceSidebar", () => {
           onArchiveConversation={onArchiveConversation}
           onRenameConversation={() => undefined}
           onPinConversation={onPinConversation}
+          onSetProjectCollapsed={() => undefined}
           onSelectProject={() => undefined}
           onSelectConversation={() => undefined}
         /></TooltipProvider>);
@@ -290,6 +350,8 @@ describe("WorkspaceSidebar", () => {
     const conversationTitle = container.querySelector('[data-slot="conversation-title"]');
 
     expect(conversationTitle?.className).toContain("flex-1");
+    expect(conversationTitle?.parentElement?.className).toContain("group-hover/conversation:pr-12");
+    expect(conversationTitle?.parentElement?.className).toContain("group-focus-within/conversation:pr-12");
     expect(container.querySelector('[data-slot="conversation-status"]')).toBeNull();
     expect(actionArea?.className).toContain("invisible");
     expect(actionArea?.className).toContain("absolute");
@@ -310,6 +372,7 @@ describe("WorkspaceSidebar", () => {
       projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
       conversations={[{ id: "session-1", projectId: "/code/demo", title: "等待查看", preview: "", time: "刚刚" }]}
       pinnedConversationIds={[]}
+      collapsedProjectIds={[]}
       activeProjectId="/code/demo"
       activeConversationId=""
       processes={{ "session-1": { busy: false } }}
@@ -323,6 +386,7 @@ describe("WorkspaceSidebar", () => {
       onArchiveConversation={() => undefined}
       onRenameConversation={() => undefined}
       onPinConversation={() => undefined}
+      onSetProjectCollapsed={() => undefined}
       onSelectProject={() => undefined}
       onSelectConversation={onSelectConversation}
     /></TooltipProvider>);
@@ -351,6 +415,7 @@ describe("WorkspaceSidebar", () => {
           projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
           conversations={[{ id: "session-1", projectId: "/code/demo", title: "原会话名称", preview: "", time: "刚刚" }]}
           pinnedConversationIds={[]}
+          collapsedProjectIds={[]}
           activeProjectId="/code/demo"
           activeConversationId="session-1"
           processes={{}}
@@ -364,6 +429,7 @@ describe("WorkspaceSidebar", () => {
           onArchiveConversation={() => undefined}
           onRenameConversation={onRenameConversation}
           onPinConversation={onPinConversation}
+          onSetProjectCollapsed={() => undefined}
           onSelectProject={() => undefined}
           onSelectConversation={() => undefined}
         /></TooltipProvider>);
@@ -384,6 +450,7 @@ describe("WorkspaceSidebar", () => {
           projects={[{ id: "/code/demo", name: "demo", path: "/code/demo" }]}
           conversations={[{ id: "session-1", projectId: "/code/demo", title: "原会话名称", preview: "", time: "刚刚" }]}
           pinnedConversationIds={["session-1"]}
+          collapsedProjectIds={[]}
           activeProjectId="/code/demo"
           activeConversationId="session-1"
           processes={{}}
@@ -397,6 +464,7 @@ describe("WorkspaceSidebar", () => {
           onArchiveConversation={() => undefined}
           onRenameConversation={onRenameConversation}
           onPinConversation={onPinConversation}
+          onSetProjectCollapsed={() => undefined}
           onSelectProject={() => undefined}
           onSelectConversation={() => undefined}
         /></TooltipProvider>);

@@ -1,5 +1,5 @@
 import type { PiProjectSummary } from "@/lib/pi-bridge";
-import { normalizeProjectPath, type WorkspacePreferences } from "@/lib/workspace-preferences";
+import { EMPTY_WORKSPACE_PREFERENCES, normalizeProjectPath, type WorkspacePreferences } from "@/lib/workspace-preferences";
 import type { ConversationRecord, Project } from "@/types/workspace";
 
 export const EMPTY_PROJECT: Project = {
@@ -14,7 +14,7 @@ export function projectFromPath(path: string): Project {
   return { id: normalizedPath, name, path: normalizedPath };
 }
 
-export function normalizePiProjects(items: PiProjectSummary[], preferences: WorkspacePreferences = { projectRoots: [], hiddenProjectRoots: [], trustedProjectRoots: [], archivedConversationIds: [], pinnedConversationIds: [] }) {
+export function normalizePiProjects(items: PiProjectSummary[], preferences: WorkspacePreferences = EMPTY_WORKSPACE_PREFERENCES) {
   const hiddenProjects = new Set(preferences.hiddenProjectRoots.map(normalizeProjectPath));
   const visibleItems = items.filter((project) => !hiddenProjects.has(normalizeProjectPath(project.path)));
   const projectPaths = [...visibleItems.map((project) => normalizeProjectPath(project.path)), ...preferences.projectRoots.map(normalizeProjectPath).filter((path) => !hiddenProjects.has(path))];

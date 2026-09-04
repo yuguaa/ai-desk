@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsPage from "@/pages/SettingsPage";
 import type { AppUpdateController, AppUpdateState } from "@/hooks/use-app-update";
-import { DEFAULT_APP_SETTINGS } from "@/lib/app-settings";
+import { DEFAULT_APP_SETTINGS, type AppSettings } from "@/lib/app-settings";
 
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 
@@ -152,7 +152,41 @@ describe("SettingsPage navigation", () => {
     expect(container.textContent).toContain("仅桌面安装版支持检测更新");
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="检查应用更新"]')?.disabled).toBe(true);
   });
+
+  it("支持连续添加、选择和删除网络图片链接", async () => {
+    vi.useFakeTimers();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<MascotSettingsHarness />);
+    });
+
+    const addButton = container.querySelector<HTMLButtonElement>('button[aria-label="添加看板娘图片链接"]');
+    act(() => addButton?.click());
+    act(() => addButton?.click());
+
+    expect(container.querySelectorAll('input[aria-label^="看板娘图片地址 "]')).toHaveLength(3);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="选择第 3 张网络图片"]')?.getAttribute("aria-pressed")).toBe("true");
+
+    act(() => container?.querySelector<HTMLButtonElement>('button[aria-label="选择第 1 张网络图片"]')?.click());
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="选择第 1 张网络图片"]')?.getAttribute("aria-pressed")).toBe("true");
+
+    act(() => container?.querySelector<HTMLButtonElement>('button[aria-label="删除第 2 个看板娘图片链接"]')?.click());
+    expect(container.querySelectorAll('input[aria-label^="看板娘图片地址 "]')).toHaveLength(2);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="选择第 1 张网络图片"]')?.getAttribute("aria-pressed")).toBe("true");
+
+    act(() => vi.runOnlyPendingTimers());
+    vi.useRealTimers();
+  });
 });
+
+function MascotSettingsHarness() {
+  const [settings, setSettings] = useState<AppSettings>({ ...DEFAULT_APP_SETTINGS, mascotSource: "customUrl", mascotImageUrls: ["https://example.com/first.png"] });
+  const updateSettings = <K extends keyof AppSettings,>(key: K, value: AppSettings[K]) => setSettings((current) => ({ ...current, [key]: value }));
+  return <SettingsPage settings={settings} appUpdate={createAppUpdate({ status: "idle" })} isTauri onBack={() => undefined} onUpdate={updateSettings} onReset={() => undefined} />;
+}
 
 function createAppUpdate(state: AppUpdateState): AppUpdateController {
   return {

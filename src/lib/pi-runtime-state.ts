@@ -71,6 +71,12 @@ export function applyPiProcessStderr(current: PiConversationState | undefined, m
   return next;
 }
 
+export function applyPiError(current: PiConversationState | undefined, message: string) {
+  const next = cloneConversationState(current);
+  next.lastError = message;
+  return next;
+}
+
 export function applyPiExtensionUiRequest(current: PiConversationState | undefined, event: Record<string, unknown>) {
   const next = cloneConversationState(current);
   const request = normalizeExtensionUiRequest(event);

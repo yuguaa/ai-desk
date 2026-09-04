@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, Check, Download, LoaderCircle, Monitor, Moon, RefreshCw, RotateCcw, Settings, Sun, TriangleAlert } from "@/components/ui/icons";
+import { ArrowLeft, Check, Download, LoaderCircle, Monitor, Moon, Plus, RefreshCw, RotateCcw, Settings, Sun, Trash2, TriangleAlert } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { ColorInput } from "@/components/ui/color-input";
 import { Input } from "@/components/ui/input";
@@ -20,9 +20,7 @@ export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onU
   const [saved, setSaved] = useState(false);
   const [customHex, setCustomHex] = useState(settings.customAccentColor);
   const immersive = isMacTauriRuntime();
-  const customMascotUrl = normalizeMascotImageUrl(settings.mascotImageUrl);
-  const invalidMascotUrl = settings.mascotImageUrl.length > 0 && !customMascotUrl;
-  const visibleMascots = settings.mascotSource === "builtIn" ? MASCOT_OPTIONS : [];
+  const customMascotUrl = normalizeMascotImageUrl(settings.mascotImageUrls[settings.mascotImageUrlIndex]);
   const activeMascotSource = MASCOT_SOURCE_OPTIONS.find((option) => option.value === settings.mascotSource) ?? MASCOT_SOURCE_OPTIONS[0];
 
   useEffect(() => setCustomHex(settings.customAccentColor), [settings.customAccentColor]);
@@ -46,6 +44,28 @@ export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onU
 
   const updateMascotSource = (source: MascotSource) => {
     change("mascotSource", source);
+    saveIndicator();
+  };
+
+  const updateMascotImageUrl = (index: number, value: string) => {
+    change("mascotImageUrls", settings.mascotImageUrls.map((url, urlIndex) => urlIndex === index ? value : url));
+  };
+
+  const addMascotImageUrl = () => {
+    const nextUrls = [...settings.mascotImageUrls, ""];
+    change("mascotImageUrls", nextUrls);
+    change("mascotImageUrlIndex", nextUrls.length - 1);
+    saveIndicator();
+  };
+
+  const removeMascotImageUrl = (index: number) => {
+    if (settings.mascotImageUrls.length === 1) return;
+    const nextUrls = settings.mascotImageUrls.filter((_, urlIndex) => urlIndex !== index);
+    const nextIndex = index < settings.mascotImageUrlIndex
+      ? settings.mascotImageUrlIndex - 1
+      : Math.min(settings.mascotImageUrlIndex, nextUrls.length - 1);
+    change("mascotImageUrls", nextUrls);
+    change("mascotImageUrlIndex", nextIndex);
     saveIndicator();
   };
 
@@ -116,17 +136,16 @@ export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onU
                   {MASCOT_SOURCE_OPTIONS.map((option) => <ToggleGroupItem type="button" key={option.value} value={option.value} aria-label={option.label} title={option.description} className="h-7 w-full px-2 text-[var(--font-size-10)] data-[state=on]:bg-[var(--accent-tint)]">{option.label}</ToggleGroupItem>)}
                 </ToggleGroup>
               </SettingRow>
-              {settings.mascotSource === "customUrl" && <SettingRow label="图片地址" description={invalidMascotUrl ? "请输入有效的 HTTPS 图片地址" : "支持静态图片和直接返回图片的接口"}><Input aria-label="看板娘图片地址" aria-invalid={invalidMascotUrl} value={settings.mascotImageUrl} onChange={(event) => change("mascotImageUrl", event.currentTarget.value)} onBlur={saveIndicator} placeholder="https://example.com/mascot.png" spellCheck={false} className="w-full font-mono text-[var(--font-size-10)]" /></SettingRow>}
             </SettingsGroup>
-            <div className="mt-3 grid gap-3">
-              <div className="relative flex aspect-video w-full items-center justify-end overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-window)]">
-                <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between px-3 py-2 text-[var(--font-size-10)] text-[var(--text-tertiary)]"><span>当前角色</span><span className={settings.mascotEnabled ? "text-[var(--success)]" : "text-[var(--text-tertiary)]"}>{settings.mascotEnabled ? "显示" : "关闭"}</span></div>
-                <Mascot style={settings.mascotStyle} source={settings.mascotSource} customUrl={settings.mascotImageUrl} motion={settings.mascotMotion} className={cn("h-full w-full object-contain object-right transition-opacity", !settings.mascotEnabled && "opacity-45")} />
-                {settings.mascotSource === "customUrl" && !customMascotUrl && <span className="absolute inset-x-3 bottom-16 text-center text-[var(--font-size-10)] text-[var(--text-tertiary)]">等待有效的 HTTPS 图片地址</span>}
+            <div className="mt-3 grid gap-3 min-[540px]:grid-cols-[184px_minmax(0,1fr)] min-[540px]:items-start">
+              <div className="relative flex aspect-video w-full max-w-[184px] items-end justify-center justify-self-center overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-window)] min-[540px]:justify-self-start">
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between px-2.5 py-2 text-[var(--font-size-10)] text-[var(--text-tertiary)]"><span>当前角色</span><span className={settings.mascotEnabled ? "text-[var(--success)]" : "text-[var(--text-tertiary)]"}>{settings.mascotEnabled ? "显示" : "关闭"}</span></div>
+                <Mascot style={settings.mascotStyle} source={settings.mascotSource} customUrls={settings.mascotImageUrls} customUrlIndex={settings.mascotImageUrlIndex} motion={settings.mascotMotion} className={cn("h-full w-full object-contain object-bottom transition-opacity", !settings.mascotEnabled && "opacity-45")} />
+                {settings.mascotSource === "customUrl" && !customMascotUrl && <span className="absolute inset-x-3 bottom-1/2 translate-y-1/2 text-center text-[var(--font-size-10)] text-[var(--text-tertiary)]">等待有效的 HTTPS 图片地址</span>}
               </div>
-              {visibleMascots.length > 0 && <ToggleGroup type="single" value={settings.mascotStyle} onValueChange={(value) => { if (!value) return; change("mascotStyle", value as AppSettings["mascotStyle"]); saveIndicator(); }} className="grid w-full grid-cols-3 gap-1.5" spacing={6}>
-                {visibleMascots.map((option) => <MascotOption key={option.value} option={option} active={settings.mascotStyle === option.value} />)}
-              </ToggleGroup>}
+              {settings.mascotSource === "builtIn"
+                ? <div><p className="mb-2 text-[var(--font-size-10)] text-[var(--text-tertiary)]">选择图片</p><ToggleGroup type="single" value={settings.mascotStyle} onValueChange={(value) => { if (!value) return; change("mascotStyle", value as AppSettings["mascotStyle"]); saveIndicator(); }} className="grid w-full grid-cols-2 gap-1.5 min-[700px]:grid-cols-3" spacing={6}>{MASCOT_OPTIONS.map((option) => <MascotOption key={option.value} option={option} active={settings.mascotStyle === option.value} />)}</ToggleGroup></div>
+                : <MascotUrlList urls={settings.mascotImageUrls} selectedIndex={settings.mascotImageUrlIndex} onAdd={addMascotImageUrl} onRemove={removeMascotImageUrl} onSelect={(index) => { change("mascotImageUrlIndex", index); saveIndicator(); }} onUpdate={updateMascotImageUrl} onBlur={saveIndicator} />}
             </div>
           </SettingsSection>
 
@@ -227,7 +246,15 @@ function SettingRow({ label, description, children }: { label: string; descripti
 }
 
 function MascotOption({ option, active }: { option: (typeof MASCOT_OPTIONS)[number]; active: boolean }) {
-  return <ToggleGroupItem type="button" value={option.value} aria-label={`${option.label} ${option.description}`} title={option.description} className={cn("group flex min-h-[118px] w-full flex-col justify-between overflow-hidden rounded-[var(--radius-sm)] border p-0 text-left transition-[background-color,border-color] active:scale-[0.98]", active ? "border-[var(--accent-border)] bg-[var(--accent-tint)]" : "border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]")}><span className="flex h-[88px] w-full items-end justify-center overflow-hidden bg-[var(--bg-window)] px-1.5 pt-1.5"><img src={mascotImageFor(option.value) ?? ""} alt="" aria-hidden="true" loading="lazy" className="h-[94px] w-full object-contain object-bottom transition-transform duration-[var(--motion-base)] group-hover:scale-[1.025]" draggable="false" /></span><span className="flex h-7 w-full items-center gap-1 px-2"><span className="min-w-0 flex-1 truncate text-[var(--font-size-10)] text-[var(--text-primary)]">{option.label}</span>{active && <Check size={11} className="shrink-0 text-[var(--accent)]" />}</span></ToggleGroupItem>;
+  return <ToggleGroupItem type="button" value={option.value} aria-label={`${option.label} ${option.description}`} title={option.description} className={cn("group flex min-h-[104px] w-full flex-col justify-between overflow-hidden rounded-[var(--radius-sm)] border p-0 text-left transition-[background-color,border-color] active:scale-[0.98]", active ? "border-[var(--accent-border)] bg-[var(--accent-tint)]" : "border-[var(--border-subtle)] bg-[var(--bg-surface)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]")}><span className="flex h-[76px] w-full items-end justify-center overflow-hidden bg-[var(--bg-window)] px-1.5 pt-1.5"><img src={mascotImageFor(option.value) ?? ""} alt="" aria-hidden="true" loading="lazy" className="h-[82px] w-full object-contain object-bottom transition-transform duration-[var(--motion-base)] group-hover:scale-[1.025]" draggable="false" /></span><span className="flex h-7 w-full items-center gap-1 px-2"><span className="min-w-0 flex-1 truncate text-[var(--font-size-10)] text-[var(--text-primary)]">{option.label}</span>{active && <Check size={11} className="shrink-0 text-[var(--accent)]" />}</span></ToggleGroupItem>;
+}
+
+function MascotUrlList({ urls, selectedIndex, onAdd, onRemove, onSelect, onUpdate, onBlur }: { urls: string[]; selectedIndex: number; onAdd: () => void; onRemove: (index: number) => void; onSelect: (index: number) => void; onUpdate: (index: number, value: string) => void; onBlur: () => void }) {
+  return <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]"><div className="flex h-9 items-center justify-between border-b border-[var(--border-subtle)] px-2.5"><div><p className="text-[var(--font-size-10-5)] text-[var(--text-secondary)]">网络图片链接</p><p className="text-[var(--font-size-9)] text-[var(--text-tertiary)]">选择一条链接作为当前图片</p></div><Button type="button" variant="ghost" size="xs" onClick={onAdd} aria-label="添加看板娘图片链接"><Plus size={12} />添加</Button></div><div className="max-h-64 space-y-1.5 overflow-y-auto p-2">{urls.map((url, index) => {
+    const active = selectedIndex === index;
+    const invalid = url.length > 0 && !normalizeMascotImageUrl(url);
+    return <div key={index} data-active={active ? "true" : "false"} className="flex items-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--bg-window)] p-1 data-[active=true]:bg-[var(--accent-tint)]"><Button type="button" variant={active ? "secondary" : "ghost"} size="icon-xs" aria-label={`选择第 ${index + 1} 张网络图片`} aria-pressed={active} onClick={() => onSelect(index)} className={cn("font-mono text-[var(--font-size-10)]", active && "text-[var(--accent)]")}>{active ? <Check size={12} /> : index + 1}</Button><Input aria-label={`看板娘图片地址 ${index + 1}`} aria-invalid={invalid} value={url} onFocus={() => onSelect(index)} onChange={(event) => onUpdate(index, event.currentTarget.value)} onBlur={onBlur} placeholder="https://example.com/mascot.png" spellCheck={false} className="font-mono text-[var(--font-size-10)]" /><Button type="button" variant="ghost" size="icon-xs" aria-label={`删除第 ${index + 1} 个看板娘图片链接`} title="删除链接" disabled={urls.length === 1} onClick={() => onRemove(index)}><Trash2 size={12} /></Button></div>;
+  })}</div></div>;
 }
 
 function fontPreviewFamily(font: FontFamilyPreference) {

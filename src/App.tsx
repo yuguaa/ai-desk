@@ -17,7 +17,7 @@ export default function App() {
     : <WorkspacePage onOpenSettings={() => setView("settings")} />;
 
   return <div data-slot="app-shell" className="relative isolate h-screen overflow-hidden bg-[var(--bg-window)]">
-    <Mascot style={appSettings.settings.mascotStyle} source={appSettings.settings.mascotSource} customUrl={appSettings.settings.mascotImageUrl} enabled={appSettings.settings.mascotEnabled} motion={appSettings.settings.mascotMotion} className="mascot-global-background pointer-events-none absolute -inset-1 z-0 h-[calc(100%+8px)] w-[calc(100%+8px)] object-cover object-right" />
+    <Mascot style={appSettings.settings.mascotStyle} source={appSettings.settings.mascotSource} customUrls={appSettings.settings.mascotImageUrls} customUrlIndex={appSettings.settings.mascotImageUrlIndex} enabled={appSettings.settings.mascotEnabled} motion={appSettings.settings.mascotMotion} className="mascot-global-background pointer-events-none absolute -inset-1 z-0 h-[calc(100%+8px)] w-[calc(100%+8px)] object-cover object-right" />
     <div className="relative z-10 h-full">{content}</div>
   </div>;
 }

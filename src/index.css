@@ -234,6 +234,11 @@ body {
   margin: 0;
 }
 
+/* 编辑器保留光标焦点，不显示全局 focus-visible 的描边阴影。 */
+.prompt-editor .ProseMirror:focus-visible {
+  box-shadow: none;
+}
+
 /* Radix ScrollArea 的 table 测量容器会被长文本撑宽。 */
 .panel-scroll-area [data-slot="scroll-area-viewport"] > div {
   display: block !important;
@@ -245,6 +250,12 @@ body {
 .conversation-column {
   width: min(100%, clamp(72ch, 60cqw, 82ch));
   margin-inline: auto;
+}
+
+/* 长会话只在进入视口时参与布局与绘制，降低历史消息对流式输出的干扰。 */
+.timeline-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 7rem;
 }
 
 /*

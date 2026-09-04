@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyPiError,
   applyPiExtensionUiRequest,
   applyPiProcessStderr,
   applyPiRpcResponse,
@@ -63,6 +64,12 @@ describe("Pi runtime state", () => {
     const state = applyPiProcessStderr(undefined, "auth failed");
     expect(state.lastStderr).toBe("auth failed");
     expect(state.lastError).toBe("auth failed");
+  });
+
+  it("captures non-stderr Pi errors without overwriting stderr state", () => {
+    const state = applyPiError({ ...EMPTY_PI_CONVERSATION_STATE, lastStderr: "previous stderr" }, "gateway failed");
+    expect(state.lastError).toBe("gateway failed");
+    expect(state.lastStderr).toBe("previous stderr");
   });
 
   it("stores extension ui requests and updates notify/status/widget/title/editor state", () => {

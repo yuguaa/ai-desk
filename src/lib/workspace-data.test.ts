@@ -28,14 +28,14 @@ describe("normalizePiProjects", () => {
         path: "/workspace/demo",
         conversations: [{ id: "session-1", title: "First", preview: "hello", time: "刚刚", sessionFile: "/tmp/session.jsonl", modifiedAt: "1", messageCount: 2 }],
       },
-    ], { projectRoots: ["/workspace/empty"], hiddenProjectRoots: [], trustedProjectRoots: [], archivedConversationIds: ["session-1"], pinnedConversationIds: [] });
+    ], { projectRoots: ["/workspace/empty"], hiddenProjectRoots: [], trustedProjectRoots: [], archivedConversationIds: ["session-1"], pinnedConversationIds: [], collapsedProjectIds: [] });
 
     expect(result.nextProjects.map((project) => project.path)).toEqual(["/workspace/demo", "/workspace/empty"]);
     expect(result.nextConversations).toEqual([]);
   });
 
   it("restores manually added projects before they have any sessions", () => {
-    const result = normalizePiProjects([], { projectRoots: ["/workspace/new-project"], hiddenProjectRoots: [], trustedProjectRoots: [], archivedConversationIds: [], pinnedConversationIds: [] });
+    const result = normalizePiProjects([], { projectRoots: ["/workspace/new-project"], hiddenProjectRoots: [], trustedProjectRoots: [], archivedConversationIds: [], pinnedConversationIds: [], collapsedProjectIds: [] });
 
     expect(result.nextProjects.map((project) => project.path)).toEqual(["/workspace/new-project"]);
     expect(result.nextConversations).toEqual([]);
@@ -49,7 +49,7 @@ describe("normalizePiProjects", () => {
         path: "/workspace/demo",
         conversations: [{ id: "session-1", title: "First", preview: "hello", time: "刚刚", sessionFile: "/tmp/session.jsonl", modifiedAt: "1", messageCount: 2 }],
       },
-    ], { projectRoots: ["/workspace/demo"], hiddenProjectRoots: ["/workspace/demo/"], trustedProjectRoots: [], archivedConversationIds: [], pinnedConversationIds: [] });
+    ], { projectRoots: ["/workspace/demo"], hiddenProjectRoots: ["/workspace/demo/"], trustedProjectRoots: [], archivedConversationIds: [], pinnedConversationIds: [], collapsedProjectIds: [] });
 
     expect(result.nextProjects).toEqual([]);
     expect(result.nextConversations).toEqual([]);

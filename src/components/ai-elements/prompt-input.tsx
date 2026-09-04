@@ -108,8 +108,9 @@ export function PromptInput({
   }, [editingQueuedTurnId, editor, isRunning, placeholder, value]);
 
   return (
-    <form onSubmit={(event) => { event.preventDefault(); if (isRunningRef.current && !valueRef.current.trim()) onAbortRef.current?.(); else onSubmitRef.current(); }} className={cn("overflow-hidden rounded-[var(--radius-composer)] bg-[var(--composer-bg)] shadow-[var(--composer-shadow)] ring-1 ring-inset ring-[var(--composer-border)] transition-[background-color,box-shadow] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:bg-[var(--composer-bg-hover)] focus-within:shadow-[var(--composer-shadow-focus)]", className)}>
+    <>
       <ConversationQueue turns={queuedTurns} editingTurnId={editingQueuedTurnId} onReorder={onReorderQueuedTurn} onRemove={onRemoveQueuedTurn} onSteer={onSteerQueuedTurn} onEdit={onEditQueuedTurn} />
+      <form onSubmit={(event) => { event.preventDefault(); if (isRunningRef.current && !valueRef.current.trim()) onAbortRef.current?.(); else onSubmitRef.current(); }} className={cn("overflow-hidden rounded-[var(--radius-composer)] border border-[var(--composer-border)] bg-[var(--composer-bg)] transition-[background-color,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:border-[var(--accent)] focus-within:bg-[var(--composer-bg-hover)]", className)}>
       <div className="relative">
         {!value && <span data-slot="prompt-placeholder" className="pointer-events-none absolute left-3.5 top-3 z-10 text-[var(--font-size-13)] leading-5 text-[var(--text-disabled)]">{placeholder}</span>}
         <EditorContent
@@ -140,7 +141,8 @@ export function PromptInput({
           <ComposerActionButton value={value} isRunning={Boolean(isRunning)} isEditingQueue={Boolean(editingQueuedTurnId)} onAbort={onAbort} />
         </div>
       </div>
-    </form>
+      </form>
+    </>
   );
 }
 

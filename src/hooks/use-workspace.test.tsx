@@ -74,6 +74,7 @@ Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 let root: Root | undefined;
 let container: HTMLDivElement | undefined;
 let workspace: ReturnType<typeof useWorkspace> | undefined;
+let workspaceRenderCount = 0;
 
 beforeEach(() => {
   localStorage.clear();
@@ -99,6 +100,7 @@ afterEach(() => {
   root = undefined;
   container = undefined;
   workspace = undefined;
+  workspaceRenderCount = 0;
 });
 
 describe("useWorkspace", () => {
@@ -176,6 +178,50 @@ describe("useWorkspace", () => {
     expect(workspace?.timeline.find((item) => item.type === "assistant")).toMatchObject({ text: "最终正文" });
     expect(workspace?.timeline.find((item) => item.type === "reasoning")).toMatchObject({ text: "分析步骤", status: "completed" });
     expect(workspace?.timeline.find((item) => item.type === "tool")).toMatchObject({ command: "ls", output: "done", status: "completed" });
+  });
+
+  it("将高频流式增量合并到同一帧内刷新", async () => {
+    await mountWorkspace();
+    vi.useFakeTimers();
+    emitEvent("c1", { type: "message_start", message: { id: "m-stream", role: "assistant" } });
+    workspaceRenderCount = 0;
+
+    for (let index = 0; index < 20; index += 1) {
+      emitEvent("c1", { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "a" } });
+    }
+
+    expect(workspaceRenderCount).toBe(0);
+    expect(workspace?.timeline).toEqual([]);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20);
+    });
+
+    expect(workspaceRenderCount).toBe(1);
+    expect(workspace?.timeline).toMatchObject([{ type: "assistant", text: "aaaaaaaaaaaaaaaaaaaa", streaming: true }]);
+  });
+
+  it("展示最终模型网关错误，并忽略会自动重试的中间错误", async () => {
+    await mountWorkspace();
+
+    emitEvent("c1", { type: "message_end", message: { id: "m-error-1", role: "assistant", content: [], stopReason: "error", errorMessage: "网关返回 401" } });
+    emitEvent("c1", { type: "agent_end", willRetry: true, messages: [{ role: "assistant", stopReason: "error", errorMessage: "网关返回 401" }] });
+    expect(workspace?.timeline).toEqual([]);
+
+    emitEvent("c1", { type: "agent_end", willRetry: false, messages: [{ id: "m-error-2", role: "assistant", content: [], stopReason: "error", errorMessage: "网关返回 401" }] });
+    expect(workspace?.conversationState.lastError).toBe("模型网关请求失败: 网关返回 401");
+    expect(workspace?.timeline.at(-1)).toMatchObject({ type: "assistant", text: "模型网关请求失败: 网关返回 401" });
+  });
+
+  it("展示初始化自动启动 Pi 失败", async () => {
+    runtime.startPiProcess.mockRejectedValueOnce(new Error("启动 Pi 失败: runtime 不可用"));
+    await mountWorkspace();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(workspace?.timeline.at(-1)).toMatchObject({ type: "assistant", text: "启动 Pi 失败: runtime 不可用" });
   });
 
   it("agent settled 后只刷新项目元数据，不覆盖活动时间线", async () => {
@@ -632,6 +678,7 @@ describe("useWorkspace", () => {
 });
 
 function WorkspaceHarness() {
+  workspaceRenderCount += 1;
   workspace = useWorkspace();
   return null;
 }

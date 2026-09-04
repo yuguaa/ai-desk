@@ -30,7 +30,8 @@ export type AppSettings = {
   containerPadding: number;
   mascotEnabled: boolean;
   mascotSource: MascotSource;
-  mascotImageUrl: string;
+  mascotImageUrls: string[];
+  mascotImageUrlIndex: number;
   mascotStyle: MascotStyle;
   mascotMotion: boolean;
 };
@@ -50,7 +51,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   containerPadding: 12,
   mascotEnabled: true,
   mascotSource: "builtIn",
-  mascotImageUrl: "",
+  mascotImageUrls: [""],
+  mascotImageUrlIndex: 0,
   mascotStyle: "scarletPose",
   mascotMotion: true,
 };
@@ -91,6 +93,7 @@ export function loadAppSettings(): AppSettings {
 
 export function normalizeAppSettings(settings: Partial<AppSettings>): AppSettings {
   const mascotSource = MASCOT_SOURCE_OPTIONS.some((option) => option.value === settings.mascotSource) ? settings.mascotSource as MascotSource : DEFAULT_APP_SETTINGS.mascotSource;
+  const mascotImageUrls = normalizeMascotImageUrls(settings.mascotImageUrls);
 
   return {
     ...DEFAULT_APP_SETTINGS,
@@ -106,9 +109,14 @@ export function normalizeAppSettings(settings: Partial<AppSettings>): AppSetting
     mascotStyle: MASCOT_OPTIONS.some((option) => option.value === settings.mascotStyle) ? settings.mascotStyle as MascotStyle : DEFAULT_APP_SETTINGS.mascotStyle,
     mascotEnabled: typeof settings.mascotEnabled === "boolean" ? settings.mascotEnabled : DEFAULT_APP_SETTINGS.mascotEnabled,
     mascotSource,
-    mascotImageUrl: typeof settings.mascotImageUrl === "string" ? settings.mascotImageUrl.trim() : DEFAULT_APP_SETTINGS.mascotImageUrl,
+    mascotImageUrls,
+    mascotImageUrlIndex: Math.trunc(normalizeNumber(settings.mascotImageUrlIndex, 0, mascotImageUrls.length - 1, DEFAULT_APP_SETTINGS.mascotImageUrlIndex)),
     mascotMotion: typeof settings.mascotMotion === "boolean" ? settings.mascotMotion : DEFAULT_APP_SETTINGS.mascotMotion,
   };
+}
+
+export function selectedMascotImageUrl(urls: readonly string[], index: number): string | null {
+  return normalizeMascotImageUrl(urls[index]);
 }
 
 export function normalizeMascotImageUrl(value: unknown): string | null {
@@ -119,6 +127,12 @@ export function normalizeMascotImageUrl(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+function normalizeMascotImageUrls(value: unknown): string[] {
+  if (!Array.isArray(value)) return [...DEFAULT_APP_SETTINGS.mascotImageUrls];
+  const urls = value.filter((item): item is string => typeof item === "string").map((item) => item.trim());
+  return urls.length > 0 ? urls : [...DEFAULT_APP_SETTINGS.mascotImageUrls];
 }
 
 export function resolveTheme(theme: ThemePreference): "dark" | "light" {

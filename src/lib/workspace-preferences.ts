@@ -4,16 +4,18 @@ export type WorkspacePreferences = {
   trustedProjectRoots: string[];
   archivedConversationIds: string[];
   pinnedConversationIds: string[];
+  collapsedProjectIds: string[];
 };
 
 export const WORKSPACE_PREFERENCES_KEY = "ai-desk.workspace";
 
-const EMPTY_WORKSPACE_PREFERENCES: WorkspacePreferences = {
+export const EMPTY_WORKSPACE_PREFERENCES: WorkspacePreferences = {
   projectRoots: [],
   hiddenProjectRoots: [],
   trustedProjectRoots: [],
   archivedConversationIds: [],
   pinnedConversationIds: [],
+  collapsedProjectIds: [],
 };
 
 export function loadWorkspacePreferences(): WorkspacePreferences {
@@ -28,6 +30,7 @@ export function loadWorkspacePreferences(): WorkspacePreferences {
       trustedProjectRoots: stringList(parsed.trustedProjectRoots).map(normalizeProjectPath),
       archivedConversationIds: stringList(parsed.archivedConversationIds),
       pinnedConversationIds: stringList(parsed.pinnedConversationIds),
+      collapsedProjectIds: stringList(parsed.collapsedProjectIds),
     };
   } catch {
     return EMPTY_WORKSPACE_PREFERENCES;
@@ -86,6 +89,15 @@ export function setConversationPinnedPreference(preferences: WorkspacePreference
     pinnedConversationIds: pinned
       ? stringList([...preferences.pinnedConversationIds, conversationId])
       : preferences.pinnedConversationIds.filter((id) => id !== conversationId),
+  };
+}
+
+export function setProjectCollapsedPreference(preferences: WorkspacePreferences, projectId: string, collapsed: boolean): WorkspacePreferences {
+  return {
+    ...preferences,
+    collapsedProjectIds: collapsed
+      ? stringList([...preferences.collapsedProjectIds, projectId])
+      : preferences.collapsedProjectIds.filter((currentId) => currentId !== projectId),
   };
 }
 

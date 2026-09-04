@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactElement } from "react";
-import { ArrowUp, Diff, Download, GitBranch, GitCommitHorizontal, Minus, Plus, RefreshCw } from "@/components/ui/icons";
+import { ArrowUp, Download, GitBranch, GitCommitHorizontal, Minus, Plus, RefreshCw } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -89,7 +89,6 @@ function GitFileRow({ file, selected, operation, disabled, actionType, actionIco
       <span className={cn("w-3 shrink-0 text-center font-mono text-[var(--font-size-10)] font-semibold", statusTone(displayCode))}>{displayCode}</span>
       <FileTypeIcon name={file.path} size={14} />
       <span className="min-w-0 flex-1 truncate">{file.path}</span>
-      <Diff className="size-3 text-[var(--text-tertiary)]" />
     </Button>
     <GitActionButton label={actionLabel} disabled={disabled} loading={operation === actionKey} onClick={() => onGitAction(action)}>{actionIcon}</GitActionButton>
   </div>;

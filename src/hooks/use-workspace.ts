@@ -14,6 +14,7 @@ import {
   type PiRuntimeEvent,
 } from "@/lib/pi-runtime";
 import {
+  applyPiError,
   applyPiExtensionUiRequest,
   applyPiProcessStderr,
   applyPiRpcResponse,
@@ -29,7 +30,7 @@ import {
   sortConversationsByPinned,
 } from "@/lib/workspace-data";
 import { pickProjectDirectory } from "@/lib/workspace-bridge";
-import { addProjectPreference, archiveConversationPreference, isProjectTrusted, loadWorkspacePreferences, normalizeProjectPath, removeProjectPreference, saveWorkspacePreferences, setConversationPinnedPreference, setProjectTrustedPreference } from "@/lib/workspace-preferences";
+import { addProjectPreference, archiveConversationPreference, isProjectTrusted, loadWorkspacePreferences, normalizeProjectPath, removeProjectPreference, saveWorkspacePreferences, setConversationPinnedPreference, setProjectCollapsedPreference, setProjectTrustedPreference } from "@/lib/workspace-preferences";
 import { formatMessageTime, projectPiSession, textFromContent, type TimelineItem } from "@/lib/pi-session";
 import type { ConversationRecord, Project } from "@/types/workspace";
 
@@ -83,6 +84,7 @@ export function useWorkspace() {
   const [queuedTurnsByConversation, setQueuedTurnsByConversation] = useState<Record<string, QueuedConversationTurn[]>>({});
   const [editingQueuedTurn, setEditingQueuedTurn] = useState<EditingQueuedTurn | null>(null);
   const [pinnedConversationIds, setPinnedConversationIds] = useState(workspacePreferencesRef.current.pinnedConversationIds);
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState(workspacePreferencesRef.current.collapsedProjectIds);
   const [activeProjectTrusted, setActiveProjectTrustedState] = useState(false);
   const activeConversationRef = useRef(activeConversationId);
   const activeProjectRef = useRef(activeProjectId);
@@ -93,6 +95,7 @@ export function useWorkspace() {
   const conversationDraftsRef = useRef(new Map<string, string>());
   const processRef = useRef(new Map<string, PiProcessStatus>());
   const streamMessagesRef = useRef(new Map<string, StreamingMessageState>());
+  const streamingSyncCancelRef = useRef(new Map<string, () => void>());
   const toolCallsRef = useRef(new Map<string, { itemId: string; name: string }>());
   const pendingResponsesRef = useRef(new Map<string, PendingPiCommand>());
   const activeTurnIndexesRef = useRef<Record<string, number>>({});
@@ -165,6 +168,7 @@ export function useWorkspace() {
 
   const appendRuntimeError = (conversationId: string, message: string, key: string = createPiCommandId("runtime-error")) => {
     if (!message.trim()) return;
+    setConversationState(conversationId, (state) => applyPiError(state, message));
     appendTimeline(conversationId, {
       id: `pi-error-${key}`,
       type: "assistant",
@@ -374,7 +378,8 @@ export function useWorkspace() {
     setActiveConversationId(preferredConversation.id);
     restoreConversationDraft(preferredConversation.id);
     if (reloadActiveTimeline) loadConversationTimeline(preferredConversation);
-    ensureProcess(preferredConversation, preferredProject).catch(() => undefined);
+    ensureProcess(preferredConversation, preferredProject)
+      .catch((reason) => appendRuntimeError(preferredConversation.id, reason instanceof Error ? reason.message : String(reason), createPiCommandId("start-error")));
   };
 
   const refreshProjects = () => {
@@ -397,12 +402,17 @@ export function useWorkspace() {
       applyPiResponse(conversationId, event);
       return;
     }
+    if (type === "agent_end") {
+      appendFinalAgentError(conversationId, event);
+      return;
+    }
     if (type === "agent_start") {
       patchProcess(conversationId, { busy: true });
       flushPendingManualSteers(conversationId, "steer");
       return;
     }
     if (type === "agent_settled") {
+      flushScheduledStreamingMessage(conversationId);
       patchProcess(conversationId, { busy: false });
       setActiveTurnIndex(conversationId, null);
       streamMessagesRef.current.delete(conversationId);
@@ -425,6 +435,7 @@ export function useWorkspace() {
       return;
     }
     if (type === "message_end") {
+      flushScheduledStreamingMessage(conversationId);
       applyMessageEnd(conversationId, event);
       return;
     }
@@ -513,15 +524,16 @@ export function useWorkspace() {
 
     if (deltaType === "text_delta") {
       stream.textBlocks.set(contentIndex, `${stream.textBlocks.get(contentIndex) ?? ""}${String(delta.delta ?? "")}`);
-      syncStreamingMessageTimeline(conversationId, stream);
+      scheduleStreamingMessageTimeline(conversationId, stream);
       return;
     }
     if (deltaType === "thinking_delta") {
       stream.thinkingBlocks.set(contentIndex, `${stream.thinkingBlocks.get(contentIndex) ?? ""}${String(delta.delta ?? "")}`);
-      syncStreamingMessageTimeline(conversationId, stream);
+      scheduleStreamingMessageTimeline(conversationId, stream);
       return;
     }
     if (deltaType === "toolcall_start") {
+      flushScheduledStreamingMessage(conversationId);
       const toolCallId = String(delta.id ?? createPiCommandId("tool"));
       const name = String(delta.toolName ?? "tool");
       const itemId = buildToolItemId(conversationId, toolCallId, stream.messageKey, contentIndex, name);
@@ -536,10 +548,11 @@ export function useWorkspace() {
       const toolCallId = String(delta.id ?? currentTool.toolCallId);
       stream.toolBlocks.set(contentIndex, { ...currentTool, toolCallId, command: `${currentTool.command}${String(delta.delta ?? "")}` });
       if (toolCallId) toolCallsRef.current.set(`${conversationId}:${toolCallId}`, { itemId: currentTool.itemId, name: currentTool.name });
-      syncStreamingMessageTimeline(conversationId, stream);
+      scheduleStreamingMessageTimeline(conversationId, stream);
       return;
     }
     if (deltaType === "toolcall_end" && delta.toolCall && typeof delta.toolCall === "object") {
+      flushScheduledStreamingMessage(conversationId);
       const call = delta.toolCall as Record<string, unknown>;
       const currentTool = stream.toolBlocks.get(contentIndex);
       const toolCallId = String(call.id ?? currentTool?.toolCallId ?? "");
@@ -582,6 +595,17 @@ export function useWorkspace() {
     }
   }
 
+  function appendFinalAgentError(conversationId: string, event: Record<string, unknown>) {
+    if (event.willRetry === true || !Array.isArray(event.messages)) return;
+    const message = [...event.messages].reverse().find((item) => item && typeof item === "object" && (item as Record<string, unknown>).role === "assistant") as Record<string, unknown> | undefined;
+    if (!message || message.stopReason !== "error") return;
+    const errorMessage = typeof message.errorMessage === "string" && message.errorMessage.trim()
+      ? message.errorMessage.trim()
+      : "模型网关请求失败";
+    const messageId = typeof message.id === "string" ? message.id : createPiCommandId("gateway-error");
+    appendRuntimeError(conversationId, `模型网关请求失败: ${errorMessage}`, `${messageId}-gateway-error`);
+  }
+
   function ensureStreamingMessage(conversationId: string) {
     const current = streamMessagesRef.current.get(conversationId);
     if (current) return current;
@@ -595,6 +619,35 @@ export function useWorkspace() {
     };
     streamMessagesRef.current.set(conversationId, next);
     return next;
+  }
+
+  function scheduleStreamingMessageTimeline(conversationId: string, stream: StreamingMessageState) {
+    if (streamingSyncCancelRef.current.has(conversationId)) return;
+    const flush = () => {
+      streamingSyncCancelRef.current.delete(conversationId);
+      if (streamMessagesRef.current.get(conversationId) === stream) syncStreamingMessageTimeline(conversationId, stream);
+    };
+    if (typeof window !== "undefined" && window.requestAnimationFrame) {
+      const frameId = window.requestAnimationFrame(flush);
+      streamingSyncCancelRef.current.set(conversationId, () => window.cancelAnimationFrame(frameId));
+      return;
+    }
+    const timeoutId = globalThis.setTimeout(flush, 16);
+    streamingSyncCancelRef.current.set(conversationId, () => globalThis.clearTimeout(timeoutId));
+  }
+
+  function flushScheduledStreamingMessage(conversationId: string) {
+    const cancel = streamingSyncCancelRef.current.get(conversationId);
+    if (!cancel) return;
+    cancel();
+    streamingSyncCancelRef.current.delete(conversationId);
+    const stream = streamMessagesRef.current.get(conversationId);
+    if (stream) syncStreamingMessageTimeline(conversationId, stream);
+  }
+
+  function cancelScheduledStreamingMessage(conversationId: string) {
+    streamingSyncCancelRef.current.get(conversationId)?.();
+    streamingSyncCancelRef.current.delete(conversationId);
   }
 
   function syncStreamingMessageTimeline(conversationId: string, stream: StreamingMessageState) {
@@ -685,7 +738,11 @@ export function useWorkspace() {
         status,
       });
       if (toolCallId) toolCallsRef.current.set(`${conversationId}:${toolCallId}`, { itemId, name: nextName });
-      syncStreamingMessageTimeline(conversationId, currentStream);
+      if (status === "running") scheduleStreamingMessageTimeline(conversationId, currentStream);
+      else {
+        flushScheduledStreamingMessage(conversationId);
+        syncStreamingMessageTimeline(conversationId, currentStream);
+      }
       return;
     }
 
@@ -711,6 +768,7 @@ export function useWorkspace() {
     let stopped = false;
 
     listenPiRuntime(applyRuntimeEvent, ({ conversationId, code }) => {
+      cancelScheduledStreamingMessage(conversationId);
       processRef.current.delete(conversationId);
       streamMessagesRef.current.delete(conversationId);
       queueDispatchingRef.current.delete(conversationId);
@@ -735,6 +793,8 @@ export function useWorkspace() {
     return () => {
       stopped = true;
       dispose?.();
+      streamingSyncCancelRef.current.forEach((cancel) => cancel());
+      streamingSyncCancelRef.current.clear();
       pendingResponsesRef.current.forEach((pending) => {
         globalThis.clearTimeout(pending.timeoutId);
         pending.reject(new Error("工作区已关闭"));
@@ -829,6 +889,7 @@ export function useWorkspace() {
     const removedIds = new Set(conversationIds);
     if (editingQueuedTurnRef.current && removedIds.has(editingQueuedTurnRef.current.conversationId)) clearQueuedTurnEditing();
     conversationIds.forEach((conversationId) => {
+      cancelScheduledStreamingMessage(conversationId);
       processRef.current.delete(conversationId);
       streamMessagesRef.current.delete(conversationId);
       queueDispatchingRef.current.delete(conversationId);
@@ -928,6 +989,13 @@ export function useWorkspace() {
     saveWorkspacePreferences(nextPreferences);
     setPinnedConversationIds(nextPreferences.pinnedConversationIds);
     setConversations(nextConversations);
+  }
+
+  function setProjectCollapsed(projectId: string, collapsed: boolean) {
+    const nextPreferences = setProjectCollapsedPreference(workspacePreferencesRef.current, projectId, collapsed);
+    workspacePreferencesRef.current = nextPreferences;
+    saveWorkspacePreferences(nextPreferences);
+    setCollapsedProjectIds(nextPreferences.collapsedProjectIds);
   }
 
   function renameConversation(conversationId: string, name: string) {
@@ -1205,6 +1273,7 @@ export function useWorkspace() {
     projects,
     conversations,
     pinnedConversationIds,
+    collapsedProjectIds,
     activeProject,
     activeProjectTrusted,
     activeConversation,
@@ -1234,6 +1303,7 @@ export function useWorkspace() {
     archiveConversation,
     renameConversation,
     setConversationPinned,
+    setProjectCollapsed,
     sendMessage,
     reorderQueuedTurn,
     removeQueuedTurn,
@@ -1264,6 +1334,11 @@ function upsertItem(items: TimelineItem[], item: TimelineItem) {
 }
 
 function replaceTimelineSegment(items: TimelineItem[], previousIds: string[], insertAt: number, nextItems: TimelineItem[]) {
+  if (!previousIds.length && insertAt >= items.length) return [...items, ...nextItems];
+  const segmentStart = items.length - previousIds.length;
+  if (insertAt === segmentStart && previousIds.every((id, index) => items[segmentStart + index]?.id === id)) {
+    return [...items.slice(0, segmentStart), ...nextItems];
+  }
   const previousIdSet = new Set(previousIds);
   const filtered = items.filter((item) => !previousIdSet.has(item.id));
   const nextInsertAt = Math.min(insertAt, filtered.length);
