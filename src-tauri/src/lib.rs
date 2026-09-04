@@ -2753,6 +2753,8 @@ mod tests {
     fn revert_git_snapshot_should_restore_single_file() {
         let repo = TestDir::new("revert-snapshot");
         git(repo.path(), &["init"]);
+        git(repo.path(), &["config", "user.name", "AI Desk"]);
+        git(repo.path(), &["config", "user.email", "ai-desk@example.com"]);
         write_file(repo.path(), "keep.txt", "base\n");
         write_file(repo.path(), "modified.txt", "base\n");
         git(repo.path(), &["add", "."]);
@@ -2784,6 +2786,8 @@ mod tests {
     fn revert_git_snapshot_should_restore_all_files() {
         let repo = TestDir::new("revert-snapshot-all");
         git(repo.path(), &["init"]);
+        git(repo.path(), &["config", "user.name", "AI Desk"]);
+        git(repo.path(), &["config", "user.email", "ai-desk@example.com"]);
         write_file(repo.path(), "modified.txt", "base\n");
         write_file(repo.path(), "deleted.txt", "base\n");
         git(repo.path(), &["add", "."]);
