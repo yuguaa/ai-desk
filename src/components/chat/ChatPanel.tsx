@@ -1,4 +1,5 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Check, MessageSquarePlus } from "@/components/ui/icons";
 import { Conversation } from "@/components/ai-elements/conversation";
 import { ConversationChangesBar } from "@/components/chat/ConversationChangesBar";
@@ -29,6 +30,13 @@ export function ChatPanel({ images = [], onAddImages, onRemoveImage, attachments
     ? "模型信息未就绪，暂时无法发送图片"
     : !selectedModel.input.includes("image") ? "当前模型不支持图片，请选择支持图片的模型" : null;
   const submitDisabled = !canSend || isTimelineLoading || attachmentsLoading || Boolean(imageModelError);
+  /* 附件与模型能力错误统一用 toast 弹出，不再占用输入区排版。 */
+  const composerError = [imageModelError, attachmentError].filter(Boolean).join("；") || null;
+  const previousComposerError = useRef<string | null>(null);
+  useEffect(() => {
+    if (composerError && composerError !== previousComposerError.current) toast.error(composerError);
+    previousComposerError.current = composerError;
+  }, [composerError]);
   let turnIndex = -1;
   let promptFingerprint = "";
   // 当前轮次的 AI 回复文本、时间与流式状态，在轮末统一展示复制与时间
@@ -76,7 +84,7 @@ export function ChatPanel({ images = [], onAddImages, onRemoveImage, attachments
         </div>
       </Conversation>}
     </div>
-    <div data-slot="conversation-composer" className="shrink-0 px-[var(--container-padding)] pb-[var(--container-padding)] pt-[var(--container-padding-tight)]"><div className="conversation-column"><Suspense fallback={<div className="h-[116px] rounded-[var(--radius-composer)] bg-[var(--composer-bg)]" aria-busy="true" />}><PromptInput images={images} onAddImages={onAddImages} onRemoveImage={onRemoveImage} attachmentsLoading={attachmentsLoading} attachmentError={[imageModelError, attachmentError].filter(Boolean).join("；") || null} onCaptureScreenshot={onCaptureScreenshot} value={draft} onChange={onDraftChange} onSubmit={sendMessage} submitDisabled={submitDisabled} onAbort={onAbort} isRunning={isBusy} queuedTurns={queuedTurns} editingQueuedTurnId={editingQueuedTurnId} models={models} selectedModel={selectedModel} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} contextUsage={contextUsage} runtimeAvailable={runtimeAvailable} onModelChange={onModelChange} onThinkingChange={onThinkingChange} onReorderQueuedTurn={onReorderQueuedTurn} onRemoveQueuedTurn={onRemoveQueuedTurn} onSteerQueuedTurn={onSteerQueuedTurn} onEditQueuedTurn={onEditQueuedTurn} /></Suspense></div></div>
+    <div data-slot="conversation-composer" className="shrink-0 px-[var(--container-padding)] pb-[var(--container-padding)] pt-[var(--container-padding-tight)]"><div className="conversation-column"><Suspense fallback={<div className="h-[116px] rounded-[var(--radius-composer)] bg-[var(--composer-bg)]" aria-busy="true" />}><PromptInput images={images} onAddImages={onAddImages} onRemoveImage={onRemoveImage} attachmentsLoading={attachmentsLoading} onCaptureScreenshot={onCaptureScreenshot} value={draft} onChange={onDraftChange} onSubmit={sendMessage} submitDisabled={submitDisabled} onAbort={onAbort} isRunning={isBusy} queuedTurns={queuedTurns} editingQueuedTurnId={editingQueuedTurnId} models={models} selectedModel={selectedModel} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} contextUsage={contextUsage} runtimeAvailable={runtimeAvailable} onModelChange={onModelChange} onThinkingChange={onThinkingChange} onReorderQueuedTurn={onReorderQueuedTurn} onRemoveQueuedTurn={onRemoveQueuedTurn} onSteerQueuedTurn={onSteerQueuedTurn} onEditQueuedTurn={onEditQueuedTurn} /></Suspense></div></div>
   </div>;
 }
 

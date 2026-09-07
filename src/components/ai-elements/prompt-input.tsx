@@ -55,7 +55,6 @@ export function PromptInput({
   onAddImages,
   onRemoveImage,
   attachmentsLoading = false,
-  attachmentError,
   onCaptureScreenshot,
 }: {
   value: string;
@@ -63,7 +62,6 @@ export function PromptInput({
   onAddImages?: (files: File[]) => void;
   onRemoveImage?: (id: string) => void;
   attachmentsLoading?: boolean;
-  attachmentError?: string | null;
   onCaptureScreenshot?: () => void;
   onChange: (value: string) => void;
   onSubmit: () => void;
@@ -115,10 +113,9 @@ export function PromptInput({
           onAddImages?.(files);
         }}
         onSubmit={(event) => { event.preventDefault(); submitPrompt(inputRef.current); }} className={cn("overflow-hidden rounded-[var(--radius-composer)] border border-[var(--composer-border)] bg-[var(--composer-bg)] transition-[background-color,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:border-[var(--accent)] focus-within:bg-[var(--composer-bg-hover)]", className)}>
+      {hasImages && <div className="px-3 pt-3"><ImageAttachments images={images} onRemove={onRemoveImage} /></div>}
+      {attachmentsLoading && <p role="status" className="px-3 pt-3 text-[var(--font-size-11)] text-[var(--text-secondary)]">正在读取图片…</p>}
       <PromptEditor value={value} placeholder={placeholder} action={action} inputRef={inputRef} />
-      {hasImages && <div className="px-3 pb-2"><ImageAttachments images={images} onRemove={onRemoveImage} /></div>}
-      {attachmentsLoading && <p role="status" className="px-3 pb-2 text-[var(--font-size-11)] text-[var(--text-secondary)]">正在读取图片…</p>}
-      {attachmentError && <p role="alert" className="break-words px-3 pb-2 text-[var(--font-size-11)] text-[var(--error)]">{attachmentError}</p>}
       <div data-slot="prompt-toolbar" className="flex min-w-0 items-center justify-between gap-2 px-2 pb-2 pt-1">
         <div className="flex min-w-0 items-center gap-1">
           {footer}

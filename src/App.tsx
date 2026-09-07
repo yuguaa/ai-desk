@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from "react";
+import { Toaster } from "sonner";
 import { Mascot } from "@/components/mascot/Mascot";
 import WorkspacePage from "@/pages/WorkspacePage";
 import { useAppUpdate } from "@/hooks/use-app-update";
@@ -19,6 +20,7 @@ export default function App() {
       {/* 设置仅遮蔽工作区，保留草稿、任务队列与运行事件订阅。 */}
       <div hidden={view !== "workspace"} className="h-full"><WorkspacePage onOpenSettings={() => setView("settings")} onShowWorkspace={() => setView("workspace")} /></div>
       {view === "settings" && <Suspense fallback={<div className="h-full bg-[var(--bg-workspace)]" aria-busy="true" />}><SettingsPage settings={appSettings.settings} appUpdate={appUpdate} isTauri={isTauri} onBack={() => setView("workspace")} onUpdate={appSettings.updateSettings} onReset={appSettings.resetSettings} /></Suspense>}
+      <Toaster theme={appSettings.settings.theme} position="top-center" offset={{ top: 64 }} richColors />
     </div>
   </div>;
 }

@@ -3,12 +3,16 @@ import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditor } from "@tiptap/react";
+import { toast } from "sonner";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { ImageAttachment } from "@/lib/image-attachments";
 import type { PiModel } from "@/lib/pi-runtime";
 
 vi.mock("@tiptap/react", { spy: true });
+vi.mock("sonner", () => ({ toast: { error: vi.fn() }, Toaster: () => null }));
+
+const toastError = vi.mocked(toast.error);
 
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 
@@ -76,7 +80,7 @@ describe("ChatPanel 图片发送链", () => {
   ])("含图时显示 $message，切换模型恢复同一份草稿", async ({ selectedModel, message }) => {
     const props = { ...createProps(), images, isBusy: false, selectedModel, draft: "说明图片" };
     await act(() => renderPanel(props));
-    expect(container!.querySelector('[role="alert"]')!.textContent).toContain(message);
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining(message));
     expect(container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
     const editor = container!.querySelector(".ProseMirror")!;
     await act(() => {
@@ -87,7 +91,7 @@ describe("ChatPanel 图片发送链", () => {
     expect(editor.getAttribute("contenteditable")).toBe("true");
     expect(container!.querySelector('img[alt="草稿.png"]')).not.toBeNull();
     await act(() => renderPanel({ ...props, selectedModel: imageModel }));
-    expect(container!.querySelector('[role="alert"]')).toBeNull();
+    expect(toastError).toHaveBeenCalledTimes(1);
     expect(container!.querySelector(".ProseMirror")).toBe(editor);
     expect(editor.textContent).toBe("说明图片");
     await act(() => container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
@@ -111,10 +115,10 @@ describe("ChatPanel 图片发送链", () => {
     expect(props.onAddImages).toHaveBeenCalledWith([file]);
     expect(props.onRemoveImage).toHaveBeenCalledWith("image-1");
     expect(props.onCaptureScreenshot).toHaveBeenCalledOnce();
-    expect(container!.querySelector('[role="alert"]')!.textContent).toContain("文件读取失败");
-    expect(container!.querySelector('[role="alert"]')!.textContent).toContain("不支持图片");
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining("文件读取失败"));
+    expect(toastError).toHaveBeenCalledWith(expect.stringContaining("不支持图片"));
     await act(() => renderPanel({ ...props, images: [] }));
-    expect(container!.querySelector('[role="alert"]')!.textContent).toBe("文件读取失败");
+    expect(toastError).toHaveBeenLastCalledWith("文件读取失败");
     expect(container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
     await act(() => container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
     expect(props.onSend).toHaveBeenCalledOnce();
@@ -123,7 +127,7 @@ describe("ChatPanel 图片发送链", () => {
   it.each([null, textModel])("没有图片时不额外限制普通文本发送", async (selectedModel) => {
     const props = { ...createProps(), isBusy: false, selectedModel };
     await act(() => renderPanel(props));
-    expect(container!.querySelector('[role="alert"]')).toBeNull();
+    expect(toastError).not.toHaveBeenCalled();
     expect(container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
     await act(() => container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
     expect(props.onSend).toHaveBeenCalledOnce();

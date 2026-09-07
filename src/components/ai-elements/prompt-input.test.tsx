@@ -58,11 +58,10 @@ describe("PromptInput", () => {
   it("读入图片时禁止按钮、表单和 Enter 提交，仍可编辑和移除", async () => {
     const onSubmit = vi.fn();
     const onRemoveImage = vi.fn();
-    await renderInput({ value: "继续编辑", images, attachmentsLoading: true, attachmentError: "图片读取失败", onSubmit, onRemoveImage });
+    await renderInput({ value: "继续编辑", images, attachmentsLoading: true, onSubmit, onRemoveImage });
     expect(container!.querySelector<HTMLButtonElement>('[aria-label="发送任务"]')!.disabled).toBe(true);
     expect(container!.querySelector('.ProseMirror')!.getAttribute('contenteditable')).toBe('true');
     expect(container!.querySelector('[role="status"]')!.textContent).toContain('正在读取图片');
-    expect(container!.querySelector('[role="alert"]')!.textContent).toBe('图片读取失败');
     await act(() => {
       container!.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       container!.querySelector('.ProseMirror')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
