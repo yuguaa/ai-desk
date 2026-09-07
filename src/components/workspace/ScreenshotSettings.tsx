@@ -27,7 +27,7 @@ export function ScreenshotSettings() {
       <span className="text-[var(--font-size-12)]">双 Command 截图</span>
       <Switch aria-label="双 Command 截图" checked={status?.shortcutEnabled ?? false} disabled={!status?.supported || pending} onCheckedChange={(enabled) => updateStatus(setScreenshotShortcutEnabled(enabled))} />
     </div>
-    <p className="text-[var(--font-size-10)] text-[var(--text-tertiary)]">同时按下左右 Command，截取前台窗口并加入当前草稿。需要屏幕录制和输入监控权限，每次启动默认关闭。</p>
+    <p className="text-[var(--font-size-10)] text-[var(--text-tertiary)]">同时按下左右 Command，截取前台窗口并加入当前草稿。需要屏幕录制和输入监控权限，开启状态会自动保留。</p>
     {status?.supported && !status.screenRecordingGranted && <Button type="button" variant="outline" size="xs" disabled={pending} className="self-start" onClick={() => updateStatus(requestScreenshotPermission("screenRecording"))}>授权屏幕录制</Button>}
     {status && !status.supported && <p className="text-[var(--font-size-10)] text-[var(--text-tertiary)]">需要 macOS 14 或更高版本。</p>}
     {error && <p role="alert" className="text-[var(--font-size-10)] text-[var(--error)]">{error}</p>}

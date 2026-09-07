@@ -9,7 +9,8 @@
 //! https://developer.apple.com/documentation/coregraphics/cgwindowlistcopywindowinfo(_:_:)
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use std::path::PathBuf;
+use tauri::{AppHandle, Manager};
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,7 +61,43 @@ pub enum ScreenshotPermission {
 }
 
 pub fn setup(app: &AppHandle) -> Result<(), ScreenshotError> {
-    platform::setup(app)
+    platform::setup(app)?;
+    /* 恢复用户上次启用的快捷入口；权限仍在才自动开启，否则保持关闭不弹权限框。 */
+    if load_shortcut_enabled(app) {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = platform::restore_enabled(app).await;
+        });
+    }
+    Ok(())
+}
+
+fn screenshot_config_path(app: &AppHandle) -> Result<PathBuf, ScreenshotError> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|error| ScreenshotError::new("config_unavailable", error.to_string()))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| ScreenshotError::new("config_unavailable", error.to_string()))?;
+    Ok(dir.join("screenshot.json"))
+}
+
+fn load_shortcut_enabled(app: &AppHandle) -> bool {
+    screenshot_config_path(app)
+        .ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value.get("shortcutEnabled").and_then(serde_json::Value::as_bool))
+        .unwrap_or(false)
+}
+
+fn persist_shortcut_enabled(app: &AppHandle, enabled: bool) -> Result<(), ScreenshotError> {
+    let path = screenshot_config_path(app)?;
+    let json = serde_json::json!({ "shortcutEnabled": enabled });
+    let bytes = serde_json::to_vec(&json)
+        .map_err(|error| ScreenshotError::new("config_unavailable", error.to_string()))?;
+    std::fs::write(&path, bytes)
+        .map_err(|error| ScreenshotError::new("config_unavailable", error.to_string()))
 }
 
 #[tauri::command]
@@ -77,13 +114,17 @@ pub async fn request_screenshot_permission(
     platform::request_permission(app, permission).await
 }
 
-/// 默认关闭且不持久化；仅用户操作设置开关时调用，开启时请求缺少的权限。
+/// 仅用户操作设置开关时调用；开启时请求缺少的权限，成功后持久化开关状态。
 #[tauri::command]
 pub async fn set_screenshot_shortcut_enabled(
     app: AppHandle,
     enabled: bool,
 ) -> Result<ScreenshotStatus, ScreenshotError> {
-    platform::set_enabled(app, enabled).await
+    let status = platform::set_enabled(app.clone(), enabled).await?;
+    if let Err(error) = persist_shortcut_enabled(&app, enabled) {
+        eprintln!("持久化截图快捷入口状态失败: {error}");
+    }
+    Ok(status)
 }
 
 /// 前端在调用前绑定 draftKey；截图成功后才显示主窗口，不自动插入或发送图片。
@@ -116,6 +157,9 @@ mod platform {
     pub async fn set_enabled(_: AppHandle, _: bool) -> Result<ScreenshotStatus, ScreenshotError> {
         unsupported()
     }
+    pub async fn restore_enabled(_: AppHandle) -> Result<ScreenshotStatus, ScreenshotError> {
+        unsupported()
+    }
     pub async fn capture(_: AppHandle) -> Result<ScreenshotImage, ScreenshotError> {
         unsupported()
     }
@@ -139,6 +183,7 @@ mod platform {
         fn ai_screenshot_status() -> u32;
         fn ai_screenshot_request_permission(input: bool) -> bool;
         fn ai_screenshot_set_enabled(enabled: bool, callback: extern "C" fn(bool)) -> u32;
+        fn ai_screenshot_restore_enabled(callback: extern "C" fn(bool)) -> u32;
         fn ai_screenshot_capture(callback: CaptureCallback, context: *mut c_void);
     }
 
@@ -238,6 +283,29 @@ mod platform {
                 5 => Err(ScreenshotError::new(
                     "not_initialized",
                     "截图服务尚未就绪，请重启应用后重试",
+                )),
+                _ => Err(ScreenshotError::new(
+                    "listener_failed",
+                    "无法创建只读键盘监听，请检查输入监控权限并重启应用后重新启用",
+                )),
+            };
+            let _ = tx.send(result);
+        })
+        .await
+    }
+
+    pub async fn restore_enabled(app: AppHandle) -> Result<ScreenshotStatus, ScreenshotError> {
+        on_main(app, move |tx| {
+            let code = if APP.get().is_none() {
+                5
+            } else {
+                unsafe { ai_screenshot_restore_enabled(gesture_callback) }
+            };
+            let result = match code {
+                0 => Ok(read_status()),
+                1 => Err(ScreenshotError::new(
+                    "unsupported",
+                    "原生截图需要 macOS 14 及以上",
                 )),
                 _ => Err(ScreenshotError::new(
                     "listener_failed",

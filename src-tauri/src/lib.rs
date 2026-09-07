@@ -10,7 +10,7 @@ use std::fs::{self, DirEntry, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -26,6 +26,7 @@ const IMAGE_TYPE_SNIFF_BYTES: usize = 4100;
 const PNG_SIGNATURE: &[u8] = &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 static TEMP_ARTIFACT_COUNTER: AtomicU64 = AtomicU64::new(0);
+static EXITING: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Error)]
 enum AppError {
@@ -2483,7 +2484,7 @@ fn stop_workspace_watch(state: State<'_, WorkspaceWatcherState>) -> Result<(), S
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
@@ -2527,13 +2528,35 @@ pub fn run() {
             stop_workspace_watch
         ])
         .on_window_event(|window, event| {
-            if matches!(event, WindowEvent::CloseRequested { .. }) {
-                let registry = window.state::<PiProcessRegistry>();
-                stop_all_pi_processes(&registry);
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                if EXITING.load(Ordering::SeqCst) {
+                    /* 真正退出（Cmd+Q 或程序化退出）：停止 Pi 进程后放行关闭。 */
+                    let registry = window.state::<PiProcessRegistry>();
+                    stop_all_pi_processes(&registry);
+                } else {
+                    /* 关闭按钮改为最小化到 Dock，保持双 Command 后台监听。 */
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running ai-desk application");
+        .build(tauri::generate_context!())
+        .expect("error while building ai-desk application");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            EXITING.store(true, Ordering::SeqCst);
+        }
+        #[cfg(target_os = "macos")]
+        if let tauri::RunEvent::Reopen { has_visible_windows, .. } = event {
+            if !has_visible_windows {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        }
+    });
 }
 
 #[cfg(test)]

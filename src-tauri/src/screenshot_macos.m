@@ -81,13 +81,9 @@ static CGEventRef handleEvent(CGEventTapProxy proxy, CGEventType type, CGEventRe
     return event;
 }
 
-uint32_t ai_screenshot_set_enabled(bool enabled, GestureCallback callback) {
-    if (!enabled) { stopListener(); return 0; }
+static uint32_t createListener(GestureCallback callback) {
     uint32_t status = ai_screenshot_status();
     if (!(status & 1)) return 1;
-    /* 此入口只由用户设置开关调用；状态查询、setup 和普通截图都不会弹权限。 */
-    if (!(status & 2) && !ai_screenshot_request_permission(false)) return 2;
-    if (!(status & 4) && !ai_screenshot_request_permission(true)) return 3;
     if (status & 8) return 0;
     stopListener();
     gestureCallback = callback;
@@ -103,6 +99,24 @@ uint32_t ai_screenshot_set_enabled(bool enabled, GestureCallback callback) {
     CGEventTapEnable(eventTap, true);
     if (!CGEventTapIsEnabled(eventTap)) { stopListener(); return 4; }
     return 0;
+}
+
+uint32_t ai_screenshot_set_enabled(bool enabled, GestureCallback callback) {
+    if (!enabled) { stopListener(); return 0; }
+    uint32_t status = ai_screenshot_status();
+    if (!(status & 1)) return 1;
+    /* 此入口只由用户设置开关调用；状态查询、setup 和普通截图都不会弹权限。 */
+    if (!(status & 2) && !ai_screenshot_request_permission(false)) return 2;
+    if (!(status & 4) && !ai_screenshot_request_permission(true)) return 3;
+    return createListener(callback);
+}
+
+/* 启动恢复：权限仍具备才静默启用，缺失时不弹权限框，保持关闭等用户手动开启。 */
+uint32_t ai_screenshot_restore_enabled(GestureCallback callback) {
+    uint32_t status = ai_screenshot_status();
+    if (!(status & 1)) return 1;
+    if (!(status & 2) || !(status & 4)) return 0;
+    return createListener(callback);
 }
 
 void ai_screenshot_capture(CaptureCallback callback, void *context) {
