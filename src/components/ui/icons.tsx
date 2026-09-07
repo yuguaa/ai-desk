@@ -40,7 +40,6 @@ import {
   LayoutList as LayoutListIcon,
   Lightbulb as LightbulbIcon,
   LoaderCircle as LoaderCircleIcon,
-  LoaderPinwheel as LoaderPinwheelIcon,
   Menu as MenuIcon,
   MessageSquare as MessageSquareIcon,
   MessageSquarePlus as MessageSquarePlusIcon,
@@ -77,12 +76,13 @@ import { cn } from "@/lib/utils";
 export type IconProps = Omit<HTMLAttributes<HTMLSpanElement>, "color"> & {
   size?: number;
   color?: string;
+  strokeWidth?: number;
 };
 
 export type AnimateIcon = ComponentType<IconProps>;
 
 function icon(source: LucideIcon): AnimateIcon {
-  return ({ size, color, className, style, ...props }: IconProps) => {
+  return ({ size, color, className, style, strokeWidth, ...props }: IconProps) => {
     const Source = source;
     const resolvedSize = size ?? 16;
     return (
@@ -97,6 +97,7 @@ function icon(source: LucideIcon): AnimateIcon {
             aria-hidden="true"
             size={resolvedSize}
             color="currentColor"
+            strokeWidth={strokeWidth}
             className="animate-icon size-full"
           />
         </span>
@@ -144,7 +145,6 @@ export const Info = icon(InfoIcon);
 export const LayoutList = icon(LayoutListIcon);
 export const Lightbulb = icon(LightbulbIcon);
 export const LoaderCircle = icon(LoaderCircleIcon);
-export const LoaderPinwheel = icon(LoaderPinwheelIcon);
 export const Maximize2 = icon(MoveDiagonal);
 export const Menu = icon(MenuIcon);
 export const MessageSquarePlus = icon(MessageSquarePlusIcon);
