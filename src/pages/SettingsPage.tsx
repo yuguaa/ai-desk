@@ -161,30 +161,29 @@ export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onU
             <SettingsGroup>
               <SettingRow label="运行时" description="每个对话拥有独立的 Pi 进程，可同时运行"><RuntimeBadge isTauri={isTauri} compact /></SettingRow>
               <SettingRow label="配置存储" description="外观与看板娘偏好保存在本机应用存储"><span className="font-mono text-[var(--font-size-10)] text-[var(--text-tertiary)]">local</span></SettingRow>
-              <SettingRow label="应用版本" description="手动检查 GitHub 已发布版本">
-                <div className="flex w-full flex-col items-end gap-1">
-                  <div className="flex items-center justify-end gap-2">
-                    <span data-slot="current-app-version" className="min-w-16 text-right font-mono text-[var(--font-size-10-5)] tabular-nums text-[var(--text-secondary)]">{appUpdate.currentVersion ? `v${appUpdate.currentVersion}` : "—"}</span>
+              <SettingRow label="应用版本" description={appUpdate.currentVersion ? <><span className="font-mono tabular-nums text-[var(--text-secondary)]">v{appUpdate.currentVersion}</span> · 手动检查 GitHub 已发布版本</> : "手动检查 GitHub 已发布版本"}>
+                <div className="flex w-full flex-col items-end gap-1.5">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
                     <Button type="button" variant="outline" size="sm" aria-label="检查应用更新" className="w-24" disabled={!isTauri || !appUpdate.canCheck} onClick={appUpdate.checkUpdate}>
                       {appUpdate.state.status === "checking" ? <LoaderCircle size={13} className="animate-spin" /> : <RefreshCw size={13} />}
                       {appUpdate.state.status === "checking" ? "检查中" : "检查更新"}
                     </Button>
+                    {(appUpdate.state.status === "available" || appUpdate.state.status === "downloadFailed") && (
+                      <Button type="button" variant="default" size="sm" aria-label="下载应用更新" className="w-24" onClick={appUpdate.downloadUpdate}>
+                        <Download size={13} />下载更新
+                      </Button>
+                    )}
+                    {(appUpdate.state.status === "downloaded" || appUpdate.state.status === "installFailed") && (
+                      <Button type="button" variant="default" size="sm" aria-label="安装并重启应用" className="w-28" onClick={appUpdate.installUpdate}>
+                        <RefreshCw size={13} />安装并重启
+                      </Button>
+                    )}
+                    {appUpdate.state.status === "restartRequired" && (
+                      <Button type="button" variant="default" size="sm" aria-label="重新启动应用" className="w-28" onClick={appUpdate.restartApp}>
+                        <RefreshCw size={13} />重新启动
+                      </Button>
+                    )}
                   </div>
-                  {(appUpdate.state.status === "available" || appUpdate.state.status === "downloadFailed") && (
-                    <Button type="button" variant="default" size="sm" aria-label="下载应用更新" className="w-24" onClick={appUpdate.downloadUpdate}>
-                      <Download size={13} />下载更新
-                    </Button>
-                  )}
-                  {(appUpdate.state.status === "downloaded" || appUpdate.state.status === "installFailed") && (
-                    <Button type="button" variant="default" size="sm" aria-label="安装并重启应用" className="w-28" onClick={appUpdate.installUpdate}>
-                      <RefreshCw size={13} />安装并重启
-                    </Button>
-                  )}
-                  {appUpdate.state.status === "restartRequired" && (
-                    <Button type="button" variant="default" size="sm" aria-label="重新启动应用" className="w-28" onClick={appUpdate.restartApp}>
-                      <RefreshCw size={13} />重新启动
-                    </Button>
-                  )}
                   <div role="status" aria-live="polite" className={cn("flex min-h-4 items-center gap-1 text-right text-[var(--font-size-9-5)]", updatePresentation.tone)}>
                     {(appUpdate.state.status === "latest" || appUpdate.state.status === "downloaded") && <Check size={11} />}
                     {appUpdate.state.status === "available" && <RefreshCw size={11} />}
@@ -249,7 +248,7 @@ function NumberSetting({ label, description, value, min, max, step, scale = 1, i
   return <SettingRow label={label} description={description}><div className="flex justify-end"><InputNumber aria-label={label} value={value * scale} min={min === undefined ? undefined : min * scale} max={max === undefined ? undefined : max * scale} step={step * scale} isValid={isValid ? (nextValue) => isValid(nextValue / scale) : undefined} onValueChange={(nextValue) => onChange(nextValue / scale)} /></div></SettingRow>;
 }
 
-function SettingRow({ label, description, children }: { label: string; description: string; children: ReactNode }) {
+function SettingRow({ label, description, children }: { label: string; description: ReactNode; children: ReactNode }) {
   return <div className="grid min-h-11 items-center gap-2 px-[var(--container-padding)] py-2 min-[620px]:grid-cols-[minmax(0,1fr)_minmax(250px,330px)]"><div className="min-w-0"><p className="text-[var(--font-size-11-5)] text-[var(--text-secondary)]">{label}</p><p className="mt-0.5 truncate text-[var(--font-size-9-5)] text-[var(--text-tertiary)]">{description}</p></div><div className="flex min-w-0 w-full justify-end justify-self-end">{children}</div></div>;
 }
 
