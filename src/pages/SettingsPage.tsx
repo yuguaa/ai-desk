@@ -80,7 +80,7 @@ export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onU
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-workspace)] text-[var(--text-primary)]">
-      <header data-immersive={immersive ? "true" : "false"} className="app-titlebar relative flex h-10 shrink-0 select-none items-center bg-[var(--bg-titlebar)] data-[immersive=true]:h-[52px]">
+      <header data-immersive={immersive ? "true" : "false"} className="app-titlebar relative flex h-[52px] shrink-0 select-none items-center bg-[var(--bg-titlebar)]">
         <div data-tauri-drag-region="deep" data-slot="titlebar-drag-region" className="absolute inset-0" />
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-1.5"><Settings size={14} className="text-[var(--text-tertiary)]" /><span className="text-[var(--font-size-12-5)] font-medium">设置</span></div>
         <div data-slot="settings-titlebar-actions" className="relative z-10 mx-auto flex w-full max-w-[760px] items-center justify-between px-[var(--container-padding-loose)]">

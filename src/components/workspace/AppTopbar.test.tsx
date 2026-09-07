@@ -16,6 +16,7 @@ describe("AppTopbar", () => {
 
     expect(html).toContain('data-tauri-drag-region="deep"');
     expect(html).toContain('data-immersive="true"');
+    expect(html).toContain("h-[52px]");
     expect(html).toContain("data-[immersive=true]:pl-[76px]");
     expect(html).toContain("bg-[var(--bg-titlebar)]");
     expect(html).toContain("AI DESK");
@@ -23,17 +24,17 @@ describe("AppTopbar", () => {
   });
 
   it.each([
-    [true, "data-[immersive=true]:h-[52px]"],
+    [true, "data-[immersive=true]:pl-[76px]"],
     [false, null],
-  ])("macOS 使用 52px 沉浸式标题栏，其他平台使用 40px（macOS：%s）", (mac, immersiveClass) => {
+  ])("标题栏统一 52px，macOS 沉浸式为红绿灯预留 76px 左侧间距（macOS：%s）", (mac, immersiveClass) => {
     windowState.mac = mac;
     const container = document.createElement("div");
     container.innerHTML = renderToStaticMarkup(<AppTopbar />);
     const header = container.querySelector("header");
-    expect(header?.classList.contains("h-10")).toBe(true);
+    expect(header?.classList.contains("h-[52px]")).toBe(true);
+    expect(header?.classList.contains("h-10")).toBe(false);
     if (immersiveClass) {
       expect(header?.className).toContain(immersiveClass);
-      expect(header?.className).toContain("data-[immersive=true]:pl-[76px]");
       expect(header?.getAttribute("data-immersive")).toBe("true");
     } else {
       expect(header?.getAttribute("data-immersive")).toBe("false");
