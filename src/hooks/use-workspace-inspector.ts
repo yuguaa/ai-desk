@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getGitDiff, getGitSnapshotDiff, getGitSnapshotDiffBetween, getGitStatus, listWorkspaceFiles, listenWorkspaceChanges, readWorkspaceFile, runGitAction as executeGitAction, startWorkspaceWatch, stopWorkspaceWatch } from "@/lib/workspace-bridge";
 import type { FilePreview, GitAction, GitStatus, WorkspaceFile } from "@/types/workspace";
 
 export type InspectorPreview =
   | (FilePreview & { mode: "file" })
   | (Extract<FilePreview, { kind: "text" }> & { mode: "diff" });
+
+type InspectorSession = {
+  cwd: string;
+  active: boolean;
+  previewRequest: number;
+  timer?: ReturnType<typeof setTimeout>;
+};
+
+const EVENT_DEBOUNCE_MS = 100;
 
 export function useWorkspaceInspector(cwd: string) {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
@@ -15,8 +24,39 @@ export function useWorkspaceInspector(cwd: string) {
   const [error, setError] = useState<string | null>(null);
   const [gitOperation, setGitOperation] = useState<string | null>(null);
   const [gitNotice, setGitNotice] = useState<string | null>(null);
+  const sessionRef = useRef<InspectorSession | null>(null);
+  const flightRef = useRef<Promise<void> | null>(null);
+  const pendingRef = useRef<InspectorSession | null>(null);
+
+  const drainWorkspace = useCallback(function drain(): Promise<void> {
+    const session = pendingRef.current;
+    pendingRef.current = null;
+    if (!session?.active) return Promise.resolve();
+    setError(null);
+    return Promise.allSettled([listWorkspaceFiles(session.cwd), getGitStatus(session.cwd)])
+      .then(([filesResult, gitResult]) => {
+        if (!session.active) return;
+        setFiles(filesResult.status === "fulfilled" ? filesResult.value : []);
+        setGitStatus(gitResult.status === "fulfilled" ? gitResult.value : null);
+        const rejected = [filesResult, gitResult].find((result) => result.status === "rejected");
+        if (rejected?.status === "rejected") {
+          const reason = rejected.reason;
+          setError(reason instanceof Error ? reason.message : String(reason));
+        }
+      })
+      .then(() => {
+        /* 整个 hook 只保留一个在途批次和一个尾随标记，切换目录也不叠加请求。 */
+        if (pendingRef.current?.active) return drain();
+        flightRef.current = null;
+        if (session.active) setIsLoading(false);
+      });
+  }, []);
 
   const loadWorkspace = useCallback((clearSelection: boolean) => {
+    const session = sessionRef.current;
+    if (!session?.active || session.cwd !== cwd) return Promise.resolve();
+    clearTimeout(session.timer);
+    session.timer = undefined;
     if (!cwd) {
       setFiles([]);
       setGitStatus(null);
@@ -30,30 +70,32 @@ export function useWorkspaceInspector(cwd: string) {
     setError(null);
     setGitNotice(null);
     if (clearSelection) {
+      session.previewRequest += 1;
       setPreview(null);
       setSelectedPath(null);
     }
-    return Promise.allSettled([listWorkspaceFiles(cwd), getGitStatus(cwd)])
-      .then(([filesResult, gitResult]) => {
-        if (filesResult.status === "fulfilled") setFiles(filesResult.value);
-        else setFiles([]);
-        if (gitResult.status === "fulfilled") setGitStatus(gitResult.value);
-        else setGitStatus(null);
-        const rejected = [filesResult, gitResult].find((result) => result.status === "rejected");
-        if (rejected?.status === "rejected") {
-          const reason = rejected.reason;
-          setError(reason instanceof Error ? reason.message : String(reason));
-        }
-      })
-      .finally(() => setIsLoading(false));
-  }, [cwd]);
+    pendingRef.current = session;
+    if (!flightRef.current) {
+      flightRef.current = drainWorkspace();
+    }
+    return flightRef.current;
+  }, [cwd, drainWorkspace]);
 
   const refresh = useCallback(() => loadWorkspace(true), [loadWorkspace]);
   const syncWorkspace = useCallback(() => loadWorkspace(false), [loadWorkspace]);
 
   useEffect(() => {
+    const session: InspectorSession = { cwd, active: true, previewRequest: 0 };
+    sessionRef.current = session;
+    setGitOperation(null);
+    setGitNotice(null);
     refresh();
-  }, [refresh]);
+    return () => {
+      session.active = false;
+      clearTimeout(session.timer);
+      if (pendingRef.current === session) pendingRef.current = null;
+    };
+  }, [cwd, refresh]);
 
   useEffect(() => {
     if (!cwd) {
@@ -62,13 +104,26 @@ export function useWorkspaceInspector(cwd: string) {
     }
     let unlisten: (() => void) | undefined;
     let stopped = false;
+    const session = sessionRef.current!;
     startWorkspaceWatch(cwd)
       .catch(() => undefined)
-      .then(() => listenWorkspaceChanges((payload) => {
-        if (payload.cwd === cwd) syncWorkspace();
-      }))
+      .then(() => {
+        if (stopped) return undefined;
+        return listenWorkspaceChanges((payload) => {
+          if (stopped || !session.active || payload.cwd !== cwd) return;
+          if (flightRef.current) {
+            syncWorkspace();
+            return;
+          }
+          clearTimeout(session.timer);
+          session.timer = setTimeout(() => {
+            session.timer = undefined;
+            if (session.active) syncWorkspace();
+          }, EVENT_DEBOUNCE_MS);
+        });
+      })
       .then((dispose) => {
-        if (stopped) dispose();
+        if (stopped) dispose?.();
         else unlisten = dispose;
       })
       .catch(() => undefined);
@@ -83,15 +138,23 @@ export function useWorkspaceInspector(cwd: string) {
   }, []);
 
   const openFile = (path: string) => {
+    const session = sessionRef.current;
+    if (!session?.active || session.cwd !== cwd) return;
+    const requestId = ++session.previewRequest;
     setSelectedPath(path);
     readWorkspaceFile(cwd, path)
       .then((nextPreview) => {
-        if (nextPreview) setPreview({ ...nextPreview, mode: "file" });
+        if (session.active && requestId === session.previewRequest && nextPreview) setPreview({ ...nextPreview, mode: "file" });
       })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+      .catch((reason) => {
+        if (session.active && requestId === session.previewRequest) setError(reason instanceof Error ? reason.message : String(reason));
+      });
   };
 
   const openDiff = (path: string, baselineTree?: string, endTree?: string) => {
+    const session = sessionRef.current;
+    if (!session?.active || session.cwd !== cwd) return;
+    const requestId = ++session.previewRequest;
     setSelectedPath(path);
     const request = baselineTree && endTree
       ? getGitSnapshotDiffBetween(cwd, baselineTree, endTree, path)
@@ -99,11 +162,16 @@ export function useWorkspaceInspector(cwd: string) {
         ? getGitSnapshotDiff(cwd, baselineTree, path)
         : getGitDiff(cwd, path);
     request
-      .then((content) => setPreview({ kind: "text", path, language: "diff", content, mode: "diff" }))
-      .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
+      .then((content) => {
+        if (session.active && requestId === session.previewRequest) setPreview({ kind: "text", path, language: "diff", content, mode: "diff" });
+      })
+      .catch((reason) => {
+        if (session.active && requestId === session.previewRequest) setError(reason instanceof Error ? reason.message : String(reason));
+      });
   };
 
   const closePreview = () => {
+    if (sessionRef.current) sessionRef.current.previewRequest += 1;
     setPreview(null);
     setSelectedPath(null);
   };
@@ -111,21 +179,24 @@ export function useWorkspaceInspector(cwd: string) {
   const dismissGitNotice = useCallback(() => setGitNotice(null), []);
 
   const runGitAction = (action: GitAction) => {
+    const session = sessionRef.current;
+    if (!session?.active || session.cwd !== cwd) return Promise.resolve(false);
     const operation = gitActionKey(action);
     setGitOperation(operation);
     setError(null);
     setGitNotice(null);
     return executeGitAction(cwd, action)
-      .then(refresh)
+      .then(() => { if (session.active) return refresh(); })
       .then(() => {
+        if (!session.active) return false;
         setGitNotice(gitActionSuccessMessage(action));
         return true;
       })
       .catch((reason) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        if (session.active) setError(reason instanceof Error ? reason.message : String(reason));
         return false;
       })
-      .finally(() => setGitOperation(null));
+      .finally(() => { if (session.active) setGitOperation(null); });
   };
 
   return {

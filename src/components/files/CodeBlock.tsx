@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import hljs from "highlight.js/lib/core";
 import bash from "highlight.js/lib/languages/bash";
 import css from "highlight.js/lib/languages/css";
@@ -19,14 +20,24 @@ hljs.registerLanguage("typescript", typescript);
 hljs.registerLanguage("xml", xml);
 hljs.registerLanguage("yaml", yaml);
 
-export function CodeBlock({ content, language, showLineNumbers = false, className }: { content: string; language: string; showLineNumbers?: boolean; className?: string }) {
-  const highlighted = highlightCode(content, language);
-  const lineCount = Math.max(1, content.split("\n").length);
+export const CodeBlock = memo(function CodeBlock({ content, language, showLineNumbers = false, className }: { content: string; language: string; showLineNumbers?: boolean; className?: string }) {
+  const highlighted = useMemo(() => highlightCode(content, language), [content, language]);
+  const lineNumbers = useMemo(() => {
+    if (!showLineNumbers) return "";
+    /*
+     * 只扫描换行位置，不拆分正文；行号使用单个文本节点避免万行 DOM。
+     */
+    const numbers = ["1"];
+    for (let index = content.indexOf("\n"); index !== -1; index = content.indexOf("\n", index + 1)) {
+      numbers.push(String(numbers.length + 1));
+    }
+    return numbers.join("\n");
+  }, [content, showLineNumbers]);
   return <div className={`flex min-w-max font-mono text-[var(--font-size-11)] leading-5 ${className ?? ""}`}>
-    {showLineNumbers && <div aria-hidden="true" className="sticky left-0 z-10 shrink-0 select-none border-r border-[var(--border-subtle)] bg-[var(--bg-window)] px-3 py-2 text-right text-[var(--font-size-9)] text-[var(--text-tertiary)]">{Array.from({ length: lineCount }, (_, index) => <div className="min-h-5" key={index}>{index + 1}</div>)}</div>}
+    {showLineNumbers && <div aria-hidden="true" className="sticky left-0 z-10 shrink-0 select-none whitespace-pre border-r border-[var(--border-subtle)] bg-[var(--bg-window)] px-3 py-2 text-right text-[var(--font-size-9)] text-[var(--text-tertiary)]">{lineNumbers}</div>}
     <pre className="m-0 min-w-max px-3 py-2"><code className="hljs" dangerouslySetInnerHTML={{ __html: highlighted }} /></pre>
   </div>;
-}
+});
 
 export function highlightCode(content: string, language: string) {
   const normalizedLanguage = normalizeLanguage(language);
@@ -35,23 +46,10 @@ export function highlightCode(content: string, language: string) {
     : escapeHtml(content);
 }
 
-export function InlineCode({ content, language, className }: { content: string; language: string; className?: string }) {
-  return <code className={`hljs whitespace-pre-wrap ${className ?? ""}`} dangerouslySetInnerHTML={{ __html: highlightCode(content, language) }} />;
-}
-
-export function languageForFile(path: string) {
-  const extension = path.split(".").pop()?.toLowerCase() ?? "";
-  if (["ts", "tsx"].includes(extension)) return "typescript";
-  if (["js", "jsx", "mjs", "cjs"].includes(extension)) return "javascript";
-  if (["rs"].includes(extension)) return "rust";
-  if (["json", "jsonl"].includes(extension)) return "json";
-  if (["css", "scss"].includes(extension)) return "css";
-  if (["html", "xml", "vue", "svelte"].includes(extension)) return "xml";
-  if (["md", "markdown"].includes(extension)) return "markdown";
-  if (["yaml", "yml"].includes(extension)) return "yaml";
-  if (["sh", "bash"].includes(extension)) return "bash";
-  return "plaintext";
-}
+export const InlineCode = memo(function InlineCode({ content, language, className }: { content: string; language: string; className?: string }) {
+  const highlighted = useMemo(() => highlightCode(content, language), [content, language]);
+  return <code className={`hljs whitespace-pre-wrap ${className ?? ""}`} dangerouslySetInnerHTML={{ __html: highlighted }} />;
+});
 
 function normalizeLanguage(language: string) {
   if (language === "text") return "plaintext";

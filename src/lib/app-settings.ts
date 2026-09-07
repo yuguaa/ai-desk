@@ -101,10 +101,10 @@ export function normalizeAppSettings(settings: Partial<AppSettings>): AppSetting
     theme: settings.theme === "light" || settings.theme === "system" || settings.theme === "dark" ? settings.theme : DEFAULT_APP_SETTINGS.theme,
     accentColor: ACCENT_OPTIONS.some((option) => option.value === settings.accentColor) ? settings.accentColor as AccentColor : DEFAULT_APP_SETTINGS.accentColor,
     customAccentColor: normalizeHexColor(settings.customAccentColor) ?? DEFAULT_APP_SETTINGS.customAccentColor,
-    cornerRadius: normalizeNumber(settings.cornerRadius, 0, 14, DEFAULT_APP_SETTINGS.cornerRadius),
-    backgroundOpacity: normalizeNumber(settings.backgroundOpacity, 0.2, 1, DEFAULT_APP_SETTINGS.backgroundOpacity),
+    cornerRadius: normalizeNumber(settings.cornerRadius, 0, Infinity, DEFAULT_APP_SETTINGS.cornerRadius),
+    backgroundOpacity: normalizeNumber(settings.backgroundOpacity, 0, 1, DEFAULT_APP_SETTINGS.backgroundOpacity),
     fontFamily: FONT_OPTIONS.some((option) => option.value === settings.fontFamily) ? settings.fontFamily as FontFamilyPreference : DEFAULT_APP_SETTINGS.fontFamily,
-    fontSize: normalizeNumber(settings.fontSize, 11, 16, DEFAULT_APP_SETTINGS.fontSize),
+    fontSize: normalizeFontSize(settings.fontSize),
     containerPadding: normalizeContainerPadding(settings.containerPadding),
     mascotStyle: MASCOT_OPTIONS.some((option) => option.value === settings.mascotStyle) ? settings.mascotStyle as MascotStyle : DEFAULT_APP_SETTINGS.mascotStyle,
     mascotEnabled: typeof settings.mascotEnabled === "boolean" ? settings.mascotEnabled : DEFAULT_APP_SETTINGS.mascotEnabled,
@@ -153,9 +153,10 @@ export function applyAppearance(settings: AppSettings) {
   applyTypography(settings.fontFamily, settings.fontSize);
   applyContainerPadding(settings.containerPadding);
   const root = document.documentElement;
-  root.style.setProperty("--background-opacity", String(settings.backgroundOpacity));
-  root.style.setProperty("--surface-opacity", String(settings.backgroundOpacity));
-  root.style.setProperty("--popover-opacity", String(Math.max(settings.backgroundOpacity, MIN_POPOVER_OPACITY)));
+  const opacity = normalizeNumber(settings.backgroundOpacity, 0, 1, DEFAULT_APP_SETTINGS.backgroundOpacity);
+  root.style.setProperty("--background-opacity", String(opacity));
+  root.style.setProperty("--surface-opacity", String(opacity));
+  root.style.setProperty("--popover-opacity", String(Math.max(opacity, MIN_POPOVER_OPACITY)));
 }
 
 export function normalizeHexColor(value: unknown): string | null {
@@ -177,7 +178,7 @@ function applyAccent(accent: AccentColor, customHex: string, theme: ThemePrefere
 
 function applyCornerRadius(radius: number) {
   const root = document.documentElement;
-  const value = normalizeNumber(radius, 0, 14, DEFAULT_APP_SETTINGS.cornerRadius);
+  const value = normalizeNumber(radius, 0, Infinity, DEFAULT_APP_SETTINGS.cornerRadius);
   root.style.setProperty("--radius-xs", `${Math.max(0, value - 4)}px`);
   root.style.setProperty("--radius-sm", `${Math.max(0, value - 2)}px`);
   root.style.setProperty("--radius-md", `${value}px`);
@@ -192,7 +193,7 @@ function applyTypography(fontFamily: FontFamilyPreference, fontSize: number) {
     geist: '"Geist Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
     mono: 'ui-monospace, "SF Mono", "Cascadia Mono", "Geist Mono", Menlo, monospace',
   };
-  const size = normalizeNumber(fontSize, 11, 16, DEFAULT_APP_SETTINGS.fontSize);
+  const size = normalizeFontSize(fontSize);
   root.dataset.font = fontFamily;
   root.style.setProperty("--font-ui", families[fontFamily]);
   root.style.setProperty("--font-size-offset", `${size - DEFAULT_APP_SETTINGS.fontSize}px`);
@@ -214,5 +215,9 @@ function normalizeNumber(value: unknown, min: number, max: number, fallback: num
 }
 
 function normalizeContainerPadding(value: unknown) {
-  return Math.round(normalizeNumber(value, 8, 20, DEFAULT_APP_SETTINGS.containerPadding));
+  return normalizeNumber(value, 0, Infinity, DEFAULT_APP_SETTINGS.containerPadding);
+}
+
+function normalizeFontSize(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : DEFAULT_APP_SETTINGS.fontSize;
 }

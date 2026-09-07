@@ -88,7 +88,6 @@ pub struct SessionView {
     pub cwd: String,
     pub name: Option<String>,
     pub leaf_id: Option<String>,
-    pub entries: Vec<Value>,
     pub active_entries: Vec<Value>,
 }
 
@@ -216,6 +215,7 @@ struct WorkspaceWatcherState {
 struct ParsedSession {
     header: Value,
     entries: Vec<Value>,
+    #[cfg(test)]
     path: PathBuf,
 }
 
@@ -800,7 +800,7 @@ fn walk_workspace_files(
             continue;
         }
         let path = entry.path();
-        if path.is_dir() {
+        if file_type.is_dir() {
             if !ignored_workspace_directory(&name) {
                 let relative = path
                     .strip_prefix(root)
@@ -817,7 +817,7 @@ fn walk_workspace_files(
             }
             continue;
         }
-        if !path.is_file() || ignored_workspace_file(&name) {
+        if !file_type.is_file() || ignored_workspace_file(&name) {
             continue;
         }
         let relative = path
@@ -858,6 +858,17 @@ fn walk_jsonl(root: &Path, output: &mut Vec<PathBuf>) -> Result<(), AppError> {
 }
 
 fn parse_session(path: &Path) -> Result<ParsedSession, AppError> {
+    let mut entries = Vec::new();
+    let header = visit_session(path, |value| entries.push(value))?;
+    Ok(ParsedSession {
+        header,
+        entries,
+        #[cfg(test)]
+        path: path.to_path_buf(),
+    })
+}
+
+fn visit_session(path: &Path, mut visit: impl FnMut(Value)) -> Result<Value, AppError> {
     let file = File::open(path).map_err(|error| AppError::ReadSession(error.to_string()))?;
     let mut lines = BufReader::new(file).lines();
     let header = lines
@@ -868,21 +879,16 @@ fn parse_session(path: &Path) -> Result<ParsedSession, AppError> {
         .filter(|value| value.get("type").and_then(Value::as_str) == Some("session"))
         .ok_or(AppError::InvalidSession)?;
 
-    let mut entries = Vec::new();
     for line in lines {
         let line = line.map_err(|error| AppError::ReadSession(error.to_string()))?;
         if let Ok(value) = serde_json::from_str::<Value>(&line) {
             if value.get("type").and_then(Value::as_str) != Some("session") {
-                entries.push(value);
+                visit(value);
             }
         }
     }
 
-    Ok(ParsedSession {
-        header,
-        entries,
-        path: path.to_path_buf(),
-    })
+    Ok(header)
 }
 
 fn value_text(value: &Value) -> Option<String> {
@@ -915,16 +921,6 @@ fn session_name(entries: &[Value]) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn session_activity_timestamp(session: &ParsedSession) -> Option<&str> {
-    session
-        .entries
-        .iter()
-        .rev()
-        .find(|entry| entry.get("type").and_then(Value::as_str) == Some("message"))
-        .and_then(|entry| entry.get("timestamp").and_then(Value::as_str))
-        .or_else(|| session.header.get("timestamp").and_then(Value::as_str))
-}
-
 fn display_time(value: Option<&str>) -> String {
     value
         .and_then(|timestamp| timestamp.split('T').next_back())
@@ -933,36 +929,62 @@ fn display_time(value: Option<&str>) -> String {
         .unwrap_or_else(|| "刚刚".to_owned())
 }
 
-fn summary_for_session(session: ParsedSession) -> ConversationSummary {
-    let id = session
-        .header
-        .get("id")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned();
-    let name = session_name(&session.entries);
-    let first_message = session
-        .entries
-        .iter()
-        .find_map(message_text)
-        .unwrap_or_else(|| "开始一段新的工作".to_owned());
-    let title = name.unwrap_or_else(|| first_message.chars().take(28).collect());
-    let activity_timestamp = session_activity_timestamp(&session)
-        .unwrap_or_default()
-        .to_owned();
-    ConversationSummary {
-        id,
-        title,
-        preview: first_message.chars().take(48).collect(),
-        time: display_time((!activity_timestamp.is_empty()).then_some(activity_timestamp.as_str())),
-        session_file: session.path.to_string_lossy().into_owned(),
-        modified_at: activity_timestamp,
-        message_count: session
-            .entries
-            .iter()
-            .filter(|entry| entry.get("type").and_then(Value::as_str) == Some("message"))
-            .count(),
+#[derive(Default)]
+struct SessionSummaryBuilder {
+    name: Option<String>,
+    first_message: Option<String>,
+    activity_timestamp: Option<String>,
+    message_count: usize,
+}
+
+impl SessionSummaryBuilder {
+    fn push(&mut self, entry: &Value) {
+        /* 列表只保留摘要字段，不随历史消息和工具输出累计内存。 */
+        if self.first_message.is_none() {
+            self.first_message = message_text(entry).map(|text| text.chars().take(48).collect());
+        }
+        match entry.get("type").and_then(Value::as_str) {
+            Some("session_info") => {
+                self.name = entry.get("name").and_then(Value::as_str)
+                    .map(str::trim).filter(|name| !name.is_empty()).map(str::to_owned);
+            }
+            Some("message") => {
+                self.message_count += 1;
+                self.activity_timestamp = entry.get("timestamp").and_then(Value::as_str).map(str::to_owned);
+            }
+            _ => {}
+        }
     }
+
+    fn finish(self, header: &Value, path: &Path) -> ConversationSummary {
+        let id = header
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let first_message = self.first_message.unwrap_or_else(|| "开始一段新的工作".to_owned());
+        let title = self.name.unwrap_or_else(|| first_message.chars().take(28).collect());
+        let activity_timestamp = self.activity_timestamp.as_deref()
+            .or_else(|| header.get("timestamp").and_then(Value::as_str))
+            .unwrap_or_default()
+            .to_owned();
+        ConversationSummary {
+            id,
+            title,
+            preview: first_message.chars().take(48).collect(),
+            time: display_time((!activity_timestamp.is_empty()).then_some(activity_timestamp.as_str())),
+            session_file: path.to_string_lossy().into_owned(),
+            modified_at: activity_timestamp,
+            message_count: self.message_count,
+        }
+    }
+}
+
+#[cfg(test)]
+fn summary_for_session(session: ParsedSession) -> ConversationSummary {
+    let mut summary = SessionSummaryBuilder::default();
+    session.entries.iter().for_each(|entry| summary.push(entry));
+    summary.finish(&session.header, &session.path)
 }
 
 fn resolve_pi_session_path(session_file: &str) -> Result<PathBuf, AppError> {
@@ -1008,7 +1030,7 @@ fn project_name(cwd: &str) -> String {
         .to_owned()
 }
 
-fn active_entries(entries: &[Value]) -> (Option<String>, Vec<Value>) {
+fn active_entries(entries: Vec<Value>) -> (Option<String>, Vec<Value>) {
     let Some(leaf) = entries
         .last()
         .and_then(|entry| entry.get("id").and_then(Value::as_str))
@@ -1016,51 +1038,54 @@ fn active_entries(entries: &[Value]) -> (Option<String>, Vec<Value>) {
     else {
         return (None, Vec::new());
     };
-    let by_id = entries
-        .iter()
+    /* 只移动活动分支，不克隆消息正文，也不向前端发送未使用的完整历史。 */
+    let mut by_id = entries
+        .into_iter()
         .filter_map(|entry| {
             entry
                 .get("id")
                 .and_then(Value::as_str)
-                .map(|id| (id.to_owned(), entry))
+                .map(str::to_owned)
+                .map(|id| (id, entry))
         })
         .collect::<HashMap<_, _>>();
     let mut selected = Vec::new();
     let mut current = Some(leaf.clone());
-    let mut visited = HashSet::new();
     while let Some(id) = current {
-        if !visited.insert(id.clone()) {
-            break;
-        }
-        let Some(entry) = by_id.get(&id) else {
+        let Some(entry) = by_id.remove(&id) else {
             break;
         };
-        selected.push((*entry).clone());
         current = entry
             .get("parentId")
             .and_then(Value::as_str)
             .map(str::to_owned);
+        selected.push(entry);
     }
     selected.reverse();
     (Some(leaf), selected)
 }
 
 #[tauri::command]
-fn list_pi_projects() -> Result<Vec<ProjectSummary>, String> {
-    let root = session_root()?;
+async fn list_pi_projects() -> Result<Vec<ProjectSummary>, String> {
+    tauri::async_runtime::spawn_blocking(|| list_pi_projects_at(&session_root()?))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn list_pi_projects_at(root: &Path) -> Result<Vec<ProjectSummary>, String> {
     if !root.exists() {
         return Ok(Vec::new());
     }
     let mut files = Vec::new();
-    walk_jsonl(&root, &mut files)?;
+    walk_jsonl(root, &mut files)?;
     let mut grouped = HashMap::<String, Vec<ConversationSummary>>::new();
     for file in files {
-        let session = match parse_session(&file) {
-            Ok(session) => session,
+        let mut summary = SessionSummaryBuilder::default();
+        let header = match visit_session(&file, |entry| summary.push(&entry)) {
+            Ok(header) => header,
             Err(_) => continue,
         };
-        let cwd = session
-            .header
+        let cwd = header
             .get("cwd")
             .and_then(Value::as_str)
             .unwrap_or_default()
@@ -1068,7 +1093,7 @@ fn list_pi_projects() -> Result<Vec<ProjectSummary>, String> {
         grouped
             .entry(cwd)
             .or_default()
-            .push(summary_for_session(session));
+            .push(summary.finish(&header, &file));
     }
     let mut projects = grouped
         .into_iter()
@@ -1086,7 +1111,7 @@ fn list_pi_projects() -> Result<Vec<ProjectSummary>, String> {
     Ok(projects)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_pi_session(session_file: String) -> Result<SessionView, String> {
     let path = resolve_pi_session_path(&session_file)?;
     let session = parse_session(&path)?;
@@ -1103,18 +1128,17 @@ fn read_pi_session(session_file: String) -> Result<SessionView, String> {
         .unwrap_or_default()
         .to_owned();
     let name = session_name(&session.entries);
-    let (leaf_id, active) = active_entries(&session.entries);
+    let (leaf_id, active) = active_entries(session.entries);
     Ok(SessionView {
         id,
         cwd,
         name,
         leaf_id,
-        entries: session.entries,
         active_entries: active,
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn rename_pi_session(session_file: String, name: String, timestamp: String) -> Result<(), String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > 256 {
@@ -1124,19 +1148,19 @@ fn rename_pi_session(session_file: String, name: String, timestamp: String) -> R
         return Err(AppError::InvalidSession.into());
     }
     let path = resolve_pi_session_path(&session_file)?;
-    parse_session(&path)?;
+    visit_session(&path, |_| {})?;
     append_session_name(&path, name, &timestamp)?;
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn preflight_pi_runtime(app: AppHandle) -> Result<PiRuntimeStatus, String> {
     preflight_pi_runtime_check(&app)
         .map(pi_runtime_status)
         .map_err(Into::into)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn start_pi_process(
     app: AppHandle,
     state: State<'_, PiProcessRegistry>,
@@ -1420,7 +1444,6 @@ fn stop_all_pi_processes(registry: &PiProcessRegistry) {
     });
 }
 
-#[tauri::command]
 fn list_workspace_files(cwd: String) -> Result<Vec<WorkspaceFile>, String> {
     let root = workspace_root(&cwd)?;
     let mut files = Vec::new();
@@ -1428,7 +1451,6 @@ fn list_workspace_files(cwd: String) -> Result<Vec<WorkspaceFile>, String> {
     Ok(files)
 }
 
-#[tauri::command]
 fn read_workspace_file(cwd: String, path: String) -> Result<FilePreview, String> {
     let root = workspace_root(&cwd)?;
     let file_path = relative_workspace_file(&root, &path)?;
@@ -1462,6 +1484,8 @@ fn read_workspace_file(cwd: String, path: String) -> Result<FilePreview, String>
 }
 
 fn git_command(root: &Path, args: &[&str]) -> Command {
+    #[cfg(test)]
+    tests::GIT_COMMAND_COUNT.with(|count| count.set(count.get() + 1));
     let mut command = Command::new("git");
     command.args(args).current_dir(root);
     command
@@ -1653,9 +1677,26 @@ fn is_git_object_id(value: &str) -> bool {
 }
 
 fn capture_snapshot_tree(root: &Path) -> Result<String, AppError> {
+    let tree = capture_worktree_tree(root)?;
+    let reference = format!("refs/ai-desk/snapshots/{tree}");
+    run_git(root, &["update-ref", reference.as_str(), tree.as_str()])?;
+    Ok(tree)
+}
+
+/* 查询使用无引用的临时树，只有显式快照需要持久引用。 */
+fn capture_worktree_tree(root: &Path) -> Result<String, AppError> {
+    let head_tree = resolve_head_tree(root)?;
+    capture_worktree_tree_from_head(root, head_tree.as_deref())
+}
+
+/* 同一次查询复用已解析的 HEAD（含尚无提交），不缓存后续请求的基线。 */
+fn capture_worktree_tree_from_head(
+    root: &Path,
+    head_tree: Option<&str>,
+) -> Result<String, AppError> {
     let temp_index = TempArtifact::new("git-index", "index")?;
-    if let Some(head_tree) = resolve_head_tree(root)? {
-        let mut read_tree = git_command(root, &["read-tree", head_tree.as_str()]);
+    if let Some(head_tree) = head_tree {
+        let mut read_tree = git_command(root, &["read-tree", head_tree]);
         read_tree.env("GIT_INDEX_FILE", &temp_index.path);
         run_git_bytes(read_tree)?;
     }
@@ -1666,14 +1707,26 @@ fn capture_snapshot_tree(root: &Path) -> Result<String, AppError> {
 
     let mut write_tree = git_command(root, &["write-tree"]);
     write_tree.env("GIT_INDEX_FILE", &temp_index.path);
-    let tree = run_git_bytes(write_tree).and_then(|stdout| {
+    run_git_bytes(write_tree).and_then(|stdout| {
         String::from_utf8(stdout)
             .map(|value| value.trim().to_owned())
             .map_err(|error| AppError::GitCommand(error.to_string()))
-    })?;
-    let reference = format!("refs/ai-desk/snapshots/{tree}");
-    run_git(root, &["update-ref", reference.as_str(), tree.as_str()])?;
-    Ok(tree)
+    })
+}
+
+fn snapshot_branch(root: &Path) -> Result<String, AppError> {
+    let output = git_command(root, &["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .output()
+        .map_err(|error| AppError::GitCommand(error.to_string()))?;
+    if output.status.success() {
+        return Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned());
+    }
+    if output.status.code() == Some(1) {
+        return Ok("HEAD".to_owned());
+    }
+    Err(AppError::GitCommand(
+        String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+    ))
 }
 
 fn branch_status(root: &Path) -> Result<ParsedGitStatus, AppError> {
@@ -1733,7 +1786,7 @@ fn diff_numstat_between_trees(
 }
 
 fn snapshot_status(root: &Path, baseline_tree: &str) -> Result<GitStatus, AppError> {
-    let current_tree = capture_snapshot_tree(root)?;
+    let current_tree = capture_worktree_tree(root)?;
     snapshot_status_between(root, baseline_tree, &current_tree)
 }
 
@@ -1743,7 +1796,7 @@ fn snapshot_status_scoped(
     end_tree: &str,
     paths: &[String],
 ) -> Result<GitStatus, AppError> {
-    let branch = branch_status(root)?.branch;
+    let branch = snapshot_branch(root)?;
     /* 全量撤销后没有需要展示的剩余文件，直接返回 clean 状态 */
     if paths.is_empty() {
         return Ok(GitStatus {
@@ -1759,19 +1812,27 @@ fn snapshot_status_scoped(
         relative_workspace_path(root, path)?;
     }
 
-    let mut files_args = vec![
-        "diff",
-        "--name-status",
-        "-z",
-        "--find-renames",
-        baseline_tree,
-        end_tree,
-        "--",
-    ];
-    files_args.extend(paths.iter().map(String::as_str));
-    let files = parse_git_name_status(&run_git_bytes(git_command(root, &files_args))?)?;
+    let requested: HashSet<_> = paths.iter().map(String::as_str).collect();
+    let files: Vec<_> = diff_changes_between_trees(root, baseline_tree, end_tree)?
+        .into_iter()
+        .filter(|change| {
+            requested.contains(change.path.as_str())
+                || change
+                    .previous_path
+                    .as_deref()
+                    .is_some_and(|path| requested.contains(path))
+        })
+        .collect();
+    /* 先在完整差异中识别重命名，再按字面路径统计两端，避免将重命名算成新增。 */
+    let selected_paths: Vec<_> = files
+        .iter()
+        .flat_map(|change| {
+            std::iter::once(change.path.as_str()).chain(change.previous_path.as_deref())
+        })
+        .collect();
 
     let mut numstat_args = vec![
+        "--literal-pathspecs",
         "diff",
         "--numstat",
         "-z",
@@ -1780,8 +1841,12 @@ fn snapshot_status_scoped(
         end_tree,
         "--",
     ];
-    numstat_args.extend(paths.iter().map(String::as_str));
-    let (additions, deletions) = parse_git_numstat(&run_git_bytes(git_command(root, &numstat_args))?)?;
+    numstat_args.extend(selected_paths);
+    let (additions, deletions) = if files.is_empty() {
+        (0, 0)
+    } else {
+        parse_git_numstat(&run_git_bytes(git_command(root, &numstat_args))?)?
+    };
 
     Ok(GitStatus {
         branch,
@@ -1803,12 +1868,12 @@ fn snapshot_status_between(
     baseline_tree: &str,
     end_tree: &str,
 ) -> Result<GitStatus, AppError> {
-    let status = branch_status(root)?;
+    let branch = snapshot_branch(root)?;
     let files = diff_changes_between_trees(root, baseline_tree, end_tree)?;
     let (additions, deletions) = diff_numstat_between_trees(root, baseline_tree, end_tree)?;
 
     Ok(GitStatus {
-        branch: status.branch,
+        branch,
         clean: files.is_empty(),
         additions,
         deletions,
@@ -1824,9 +1889,20 @@ fn snapshot_status_between(
 
 fn porcelain_status(root: &Path) -> Result<GitStatus, AppError> {
     let status = branch_status(root)?;
-    let baseline = resolve_head_tree(root)?.unwrap_or_else(|| EMPTY_TREE_HASH.to_owned());
-    let current_tree = capture_snapshot_tree(root)?;
-    let (additions, deletions) = diff_numstat_between_trees(root, &baseline, &current_tree)?;
+    /* 干净状态已确定增删行数为零，无需临时索引和全工作区快照。 */
+    if status.entries.is_empty() {
+        return Ok(GitStatus {
+            branch: status.branch,
+            clean: true,
+            additions: 0,
+            deletions: 0,
+            files: Vec::new(),
+        });
+    }
+    let head_tree = resolve_head_tree(root)?;
+    let baseline = head_tree.as_deref().unwrap_or(EMPTY_TREE_HASH);
+    let current_tree = capture_worktree_tree_from_head(root, head_tree.as_deref())?;
+    let (additions, deletions) = diff_numstat_between_trees(root, baseline, &current_tree)?;
 
     Ok(GitStatus {
         branch: status.branch,
@@ -1845,7 +1921,7 @@ fn porcelain_status(root: &Path) -> Result<GitStatus, AppError> {
 }
 
 fn snapshot_diff(root: &Path, baseline_tree: &str, path: &str) -> Result<String, AppError> {
-    let current_tree = capture_snapshot_tree(root)?;
+    let current_tree = capture_worktree_tree(root)?;
     snapshot_diff_between(root, baseline_tree, &current_tree, path)
 }
 
@@ -1867,6 +1943,7 @@ fn snapshot_diff_between(
     }
 
     let mut args = vec![
+        "--literal-pathspecs",
         "diff",
         "--no-ext-diff",
         "--no-color",
@@ -1888,44 +1965,6 @@ fn snapshot_diff_between(
     run_git(root, &args)
 }
 
-fn checkout_tree_path(root: &Path, baseline_tree: &str, path: &str) -> Result<(), AppError> {
-    run_git(root, &["checkout", baseline_tree, "--", path])?;
-    Ok(())
-}
-
-fn remove_workspace_path(root: &Path, path: &str) -> Result<(), AppError> {
-    /* 先取消暂存（若已在索引中），再删除工作区文件 */
-    let _ = run_git(root, &["rm", "--cached", "-r", "--ignore-unmatch", "--", path]);
-    let full = root.join(path);
-    if full.is_dir() {
-        let _ = fs::remove_dir_all(&full);
-    } else {
-        let _ = fs::remove_file(&full);
-    }
-    Ok(())
-}
-
-fn revert_change(root: &Path, baseline_tree: &str, change: &GitChange) -> Result<(), AppError> {
-    let code = change.code.trim();
-    if code.starts_with('A') || code.starts_with('C') {
-        /* 新增/复制：从索引与工作区删除目标路径 */
-        remove_workspace_path(root, &change.path)?;
-    } else if code.starts_with('R') {
-        /* 重命名：恢复旧路径，删除新路径 */
-        if let Some(previous) = change.previous_path.as_deref() {
-            checkout_tree_path(root, baseline_tree, previous)?;
-        }
-        remove_workspace_path(root, &change.path)?;
-    } else if code.starts_with('D') {
-        /* 删除：从基线恢复 */
-        checkout_tree_path(root, baseline_tree, &change.path)?;
-    } else {
-        /* 修改/类型变更：从基线恢复 */
-        checkout_tree_path(root, baseline_tree, &change.path)?;
-    }
-    Ok(())
-}
-
 fn revert_snapshot(
     root: &Path,
     baseline_tree: &str,
@@ -1933,13 +1972,115 @@ fn revert_snapshot(
     path: Option<&str>,
 ) -> Result<(), AppError> {
     let changes = diff_changes_between_trees(root, baseline_tree, end_tree)?;
-    let selected = changes.iter().filter(|change| match path {
-        Some(target) => change.path == target || change.previous_path.as_deref() == Some(target),
-        None => true,
-    });
-    for change in selected {
-        revert_change(root, baseline_tree, change)?;
+    let selected: Vec<_> = changes
+        .iter()
+        .filter(|change| match path {
+            Some(target) => {
+                change.path == target || change.previous_path.as_deref() == Some(target)
+            }
+            None => true,
+        })
+        .collect();
+    if selected.is_empty() {
+        return Ok(());
     }
+    let mut paths: Vec<_> = selected
+        .iter()
+        .flat_map(|change| {
+            std::iter::once(change.path.as_str()).chain(change.previous_path.as_deref())
+        })
+        .collect();
+    for path in &paths {
+        relative_workspace_path(root, path)?;
+    }
+
+    /* 整批预检后续编辑，冲突时不修改任何文件；暂存区始终保持原样。 */
+    let current_tree = capture_worktree_tree(root)?;
+    let changed_paths = |tree: &str| -> Result<HashSet<String>, AppError> {
+        let mut args = vec![
+            "--literal-pathspecs",
+            "diff",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            tree,
+            &current_tree,
+            "--",
+        ];
+        args.extend(paths.iter().copied());
+        let output = run_git_bytes(git_command(root, &args))?;
+        let mut changed = HashSet::new();
+        for path in output
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+        {
+            let path = String::from_utf8_lossy(path);
+            let mut ancestor = path.as_ref();
+            loop {
+                changed.insert(ancestor.to_owned());
+                let Some((parent, _)) = ancestor.rsplit_once('/') else {
+                    break;
+                };
+                ancestor = parent;
+            }
+        }
+        Ok(changed)
+    };
+    let from_baseline = changed_paths(baseline_tree)?;
+    let from_end = changed_paths(end_tree)?;
+    let mut pending = Vec::new();
+    for change in selected {
+        let related: Vec<_> = std::iter::once(change.path.as_str())
+            .chain(change.previous_path.as_deref())
+            .collect();
+        let differs =
+            |changed: &HashSet<String>| related.iter().any(|path| changed.contains(*path));
+        /* 前端仍传原始快照：已恢复的整组路径跳过，重命名两端必须一起判断。 */
+        if !differs(&from_baseline) {
+            if matches!(change.code.chars().next(), Some('A' | 'C' | 'R'))
+                && fs::symlink_metadata(root.join(&change.path)).is_ok()
+            {
+                return Err(AppError::GitCommand(
+                    "撤销目标被新的文件或目录占用，已拒绝撤销".to_owned(),
+                ));
+            }
+            continue;
+        }
+        if differs(&from_end) {
+            return Err(AppError::GitCommand(
+                "撤销目标存在快照之后的编辑，已拒绝撤销".to_owned(),
+            ));
+        }
+        pending.extend(related);
+    }
+    paths = pending;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let mut args = vec![
+        "--literal-pathspecs",
+        "diff",
+        "--binary",
+        "--full-index",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
+        end_tree,
+        baseline_tree,
+        "--",
+    ];
+    args.extend(paths);
+    let patch = run_git_bytes(git_command(root, &args))?;
+    let artifact = TempArtifact::new("revert-patch", "patch")?;
+    fs::write(&artifact.path, patch).map_err(|error| AppError::GitCommand(error.to_string()))?;
+    /* 不使用 --reject 或 --index：Git 整批校验补丁，只修改工作区。
+     * 预检与应用之间仍有 TOCTOU，无法锁住外部编辑器或保证跨进程事务。
+     */
+    let mut apply = git_command(root, &["apply", "--whitespace=nowarn"]);
+    apply.arg(&artifact.path);
+    run_git_bytes(apply)?;
     Ok(())
 }
 
@@ -1986,70 +2127,76 @@ fn execute_git_action(root: &Path, action: GitAction) -> Result<(), AppError> {
     Ok(())
 }
 
-#[tauri::command]
 fn get_git_status(cwd: String) -> Result<GitStatus, String> {
     let root = workspace_root(&cwd)?;
     porcelain_status(&root).map_err(Into::into)
 }
 
-#[tauri::command]
 fn get_git_diff(cwd: String, path: String) -> Result<String, String> {
     let root = workspace_root(&cwd)?;
-    let baseline = resolve_head_tree(&root)?.unwrap_or_else(|| EMPTY_TREE_HASH.to_owned());
-    snapshot_diff(&root, &baseline, &path).map_err(Into::into)
+    let head_tree = resolve_head_tree(&root)?;
+    let baseline = head_tree.as_deref().unwrap_or(EMPTY_TREE_HASH);
+    let current_tree = capture_worktree_tree_from_head(&root, head_tree.as_deref())?;
+    snapshot_diff_between(&root, baseline, &current_tree, &path).map_err(Into::into)
 }
 
-#[tauri::command]
 fn run_git_action(cwd: String, action: GitAction) -> Result<(), String> {
     let root = workspace_root(&cwd)?;
     execute_git_action(&root, action).map_err(Into::into)
 }
 
-#[tauri::command]
 fn capture_git_snapshot(cwd: String) -> Result<String, String> {
     let root = workspace_root(&cwd)?;
     capture_snapshot_tree(&root).map_err(Into::into)
 }
 
-#[tauri::command]
 fn get_git_snapshot_status(cwd: String, baseline: String) -> Result<GitStatus, String> {
     let root = workspace_root(&cwd)?;
     let baseline_tree = resolve_treeish(&root, &baseline)?;
     snapshot_status(&root, &baseline_tree).map_err(Into::into)
 }
 
-#[tauri::command]
-fn get_git_snapshot_status_between(cwd: String, baseline: String, end: String) -> Result<GitStatus, String> {
+fn get_git_snapshot_status_between(
+    cwd: String,
+    baseline: String,
+    end: String,
+) -> Result<GitStatus, String> {
     let root = workspace_root(&cwd)?;
     let baseline_tree = resolve_treeish(&root, &baseline)?;
     let end_tree = resolve_treeish(&root, &end)?;
     snapshot_status_between(&root, &baseline_tree, &end_tree).map_err(Into::into)
 }
 
-#[tauri::command]
-fn get_git_snapshot_status_scoped(cwd: String, baseline: String, end: String, paths: Vec<String>) -> Result<GitStatus, String> {
+fn get_git_snapshot_status_scoped(
+    cwd: String,
+    baseline: String,
+    end: String,
+    paths: Vec<String>,
+) -> Result<GitStatus, String> {
     let root = workspace_root(&cwd)?;
     let baseline_tree = resolve_treeish(&root, &baseline)?;
     let end_tree = resolve_treeish(&root, &end)?;
     snapshot_status_scoped(&root, &baseline_tree, &end_tree, &paths).map_err(Into::into)
 }
 
-#[tauri::command]
 fn get_git_snapshot_diff(cwd: String, baseline: String, path: String) -> Result<String, String> {
     let root = workspace_root(&cwd)?;
     let baseline_tree = resolve_treeish(&root, &baseline)?;
     snapshot_diff(&root, &baseline_tree, &path).map_err(Into::into)
 }
 
-#[tauri::command]
-fn get_git_snapshot_diff_between(cwd: String, baseline: String, end: String, path: String) -> Result<String, String> {
+fn get_git_snapshot_diff_between(
+    cwd: String,
+    baseline: String,
+    end: String,
+    path: String,
+) -> Result<String, String> {
     let root = workspace_root(&cwd)?;
     let baseline_tree = resolve_treeish(&root, &baseline)?;
     let end_tree = resolve_treeish(&root, &end)?;
     snapshot_diff_between(&root, &baseline_tree, &end_tree, &path).map_err(Into::into)
 }
 
-#[tauri::command]
 fn release_git_snapshot(cwd: String, snapshot: String) -> Result<(), String> {
     if !is_git_object_id(&snapshot) {
         return Err("无效的 Git snapshot id".to_owned());
@@ -2060,12 +2207,46 @@ fn release_git_snapshot(cwd: String, snapshot: String) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-fn revert_git_snapshot(cwd: String, baseline: String, end: String, path: Option<String>) -> Result<(), String> {
+fn revert_git_snapshot(
+    cwd: String,
+    baseline: String,
+    end: String,
+    path: Option<String>,
+) -> Result<(), String> {
     let root = workspace_root(&cwd)?;
     let baseline_tree = resolve_treeish(&root, &baseline)?;
     let end_tree = resolve_treeish(&root, &end)?;
     revert_snapshot(&root, &baseline_tree, &end_tree, path.as_deref()).map_err(Into::into)
+}
+
+/* Git 子进程和文件 IO 放入阻塞池，避免占用 UI 或异步运行时工作线程。 */
+mod git_commands {
+    use super::*;
+
+    macro_rules! blocking_command {
+        ($name:ident($($arg:ident: $kind:ty),*) -> $result:ty) => {
+            #[tauri::command]
+            pub async fn $name($($arg: $kind),*) -> Result<$result, String> {
+                tauri::async_runtime::spawn_blocking(move || super::$name($($arg),*))
+                    .await
+                    .map_err(|error| error.to_string())?
+            }
+        };
+    }
+
+    blocking_command!(get_git_status(cwd: String) -> GitStatus);
+    blocking_command!(list_workspace_files(cwd: String) -> Vec<WorkspaceFile>);
+    blocking_command!(read_workspace_file(cwd: String, path: String) -> FilePreview);
+    blocking_command!(get_git_diff(cwd: String, path: String) -> String);
+    blocking_command!(run_git_action(cwd: String, action: GitAction) -> ());
+    blocking_command!(capture_git_snapshot(cwd: String) -> String);
+    blocking_command!(get_git_snapshot_status(cwd: String, baseline: String) -> GitStatus);
+    blocking_command!(get_git_snapshot_status_between(cwd: String, baseline: String, end: String) -> GitStatus);
+    blocking_command!(get_git_snapshot_status_scoped(cwd: String, baseline: String, end: String, paths: Vec<String>) -> GitStatus);
+    blocking_command!(get_git_snapshot_diff(cwd: String, baseline: String, path: String) -> String);
+    blocking_command!(get_git_snapshot_diff_between(cwd: String, baseline: String, end: String, path: String) -> String);
+    blocking_command!(release_git_snapshot(cwd: String, snapshot: String) -> ());
+    blocking_command!(revert_git_snapshot(cwd: String, baseline: String, end: String, path: Option<String>) -> ());
 }
 
 fn watch_path_relevant(root: &Path, path: &Path) -> bool {
@@ -2106,6 +2287,9 @@ fn watch_path_relevant(root: &Path, path: &Path) -> bool {
         };
     }
     !ignored_workspace_directory(&first)
+        && !components.any(|component| {
+            ignored_workspace_directory(&component.as_os_str().to_string_lossy())
+        })
 }
 
 fn watch_event_relevant(root: &Path, event: &Event) -> bool {
@@ -2196,19 +2380,19 @@ pub fn run() {
             send_pi_command,
             list_pi_processes,
             stop_pi_process,
-            list_workspace_files,
-            read_workspace_file,
-            get_git_status,
-            get_git_diff,
-            run_git_action,
-            capture_git_snapshot,
-            get_git_snapshot_status,
-            get_git_snapshot_status_between,
-            get_git_snapshot_status_scoped,
-            get_git_snapshot_diff,
-            get_git_snapshot_diff_between,
-            release_git_snapshot,
-            revert_git_snapshot,
+            git_commands::list_workspace_files,
+            git_commands::read_workspace_file,
+            git_commands::get_git_status,
+            git_commands::get_git_diff,
+            git_commands::run_git_action,
+            git_commands::capture_git_snapshot,
+            git_commands::get_git_snapshot_status,
+            git_commands::get_git_snapshot_status_between,
+            git_commands::get_git_snapshot_status_scoped,
+            git_commands::get_git_snapshot_diff,
+            git_commands::get_git_snapshot_diff_between,
+            git_commands::release_git_snapshot,
+            git_commands::revert_git_snapshot,
             start_workspace_watch,
             stop_workspace_watch
         ])
@@ -2241,6 +2425,7 @@ mod tests {
             let counter = TEMP_ARTIFACT_COUNTER.fetch_add(1, Ordering::Relaxed);
             let path = env::temp_dir().join(format!("ai-desk-{prefix}-{unique}-{counter}"));
             fs::create_dir_all(&path).expect("create test dir");
+            let path = path.canonicalize().expect("canonical test dir");
             Self { path }
         }
 
@@ -2453,6 +2638,103 @@ mod tests {
     }
 
     #[test]
+    fn active_session_branch_should_move_messages_without_duplicate_payload() {
+        let root = serde_json::json!({"id":"root", "message":{"content":"first"}});
+        let old_branch = serde_json::json!({"id":"old", "parentId":"root"});
+        let leaf = serde_json::json!({"id":"leaf", "parentId":"root", "message":{"content":"x".repeat(65536)}});
+        let content_ptr = leaf["message"]["content"].as_str().unwrap().as_ptr();
+        let (leaf_id, active) = active_entries(vec![root, old_branch, leaf]);
+        assert_eq!(leaf_id.as_deref(), Some("leaf"));
+        assert_eq!(active.len(), 2);
+        assert_eq!(active[0]["id"], "root");
+        assert_eq!(active[1]["message"]["content"].as_str().unwrap().as_ptr(), content_ptr);
+        let view = SessionView { id: "session".into(), cwd: "/workspace".into(), name: None, leaf_id, active_entries: active };
+        let payload = serde_json::to_value(view).unwrap();
+        assert!(payload.get("entries").is_none());
+        assert_eq!(payload["activeEntries"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn active_session_branch_should_terminate_for_cycles_and_missing_parents() {
+        let (_, cyclic) = active_entries(vec![
+            serde_json::json!({"id":"a", "parentId":"b"}),
+            serde_json::json!({"id":"b", "parentId":"a"}),
+        ]);
+        assert_eq!(cyclic.len(), 2);
+        assert_eq!(cyclic[0]["id"], "a");
+        let (_, missing) = active_entries(vec![serde_json::json!({"id":"a", "parentId":"missing"})]);
+        assert_eq!(missing.len(), 1);
+        assert_eq!(active_entries(Vec::new()), (None, Vec::new()));
+    }
+
+    #[test]
+    fn workspace_watch_should_ignore_nested_build_and_dependency_directories() {
+        let root = Path::new("/workspace");
+        for relative in ["node_modules/a.js", "packages/app/node_modules/a.js", "crates/app/target/debug/app", "packages/app/dist/index.js", ".git/objects/ab/cd", ".git/refs/ai-desk/snapshot"] {
+            assert!(!watch_path_relevant(root, &root.join(relative)), "{relative}");
+        }
+        for relative in ["packages/app/src/index.ts", ".git/index", ".git/refs/heads/main"] {
+            assert!(watch_path_relevant(root, &root.join(relative)), "{relative}");
+        }
+    }
+
+    #[test]
+    fn streamed_project_summaries_should_preserve_session_metadata() {
+        let root = TestDir::new("streamed-session-summary");
+        let file = root.path().join("session.jsonl");
+        let entries = [
+            serde_json::json!({"type":"session", "id":"s1", "cwd":"/workspace", "timestamp":"2026-09-07T08:00:00Z"}),
+            serde_json::json!({"type":"message", "timestamp":"2026-09-07T08:01:00Z", "message":{"content":[{"text":"首条消息"},{"text":"内容"}]}}),
+            serde_json::json!({"type":"session_info", "name":"  新名称  "}),
+            serde_json::json!({"type":"message", "timestamp":"2026-09-07T08:02:00Z", "message":{"content":"后续输出"}}),
+        ];
+        let mut output = File::create(&file).unwrap();
+        for entry in entries {
+            writeln!(output, "{entry}").unwrap();
+        }
+        writeln!(output, "invalid partial json").unwrap();
+        let projects = list_pi_projects_at(root.path()).unwrap();
+        let summary = &projects[0].conversations[0];
+        assert_eq!(projects[0].path, "/workspace");
+        assert_eq!(summary.title, "新名称");
+        assert_eq!(summary.preview, "首条消息 内容");
+        assert_eq!(summary.modified_at, "2026-09-07T08:02:00Z");
+        assert_eq!(summary.message_count, 2);
+        writeln!(output, "{}", serde_json::json!({"type":"session_info", "name":" "})).unwrap();
+        writeln!(output, "{}", serde_json::json!({"type":"message", "message":{"content":"no timestamp"}})).unwrap();
+        let projects = list_pi_projects_at(root.path()).unwrap();
+        let summary = &projects[0].conversations[0];
+        assert_eq!(summary.title, "首条消息 内容");
+        assert_eq!(summary.modified_at, "2026-09-07T08:00:00Z");
+        assert_eq!(summary.message_count, 3);
+    }
+
+    #[test]
+    fn streamed_project_summaries_should_not_retain_large_tool_outputs() {
+        let root = TestDir::new("large-session-summary");
+        let file = root.path().join("large.jsonl");
+        let mut output = File::create(&file).unwrap();
+        writeln!(output, "{}", serde_json::json!({"type":"session", "id":"large", "cwd":"/workspace"})).unwrap();
+        let entry = serde_json::json!({"type":"message", "message":{"content":"文".repeat(4096)}});
+        for _ in 0..1000 {
+            writeln!(output, "{entry}").unwrap();
+        }
+        let started = std::time::Instant::now();
+        let parsed = parse_session(&file).unwrap();
+        let retained_entries = parsed.entries.len();
+        let expected = summary_for_session(parsed);
+        let full_duration = started.elapsed();
+        let started = std::time::Instant::now();
+        let mut builder = SessionSummaryBuilder::default();
+        let header = visit_session(&file, |entry| builder.push(&entry)).unwrap();
+        assert_eq!(builder.first_message.as_ref().unwrap().chars().count(), 48);
+        let summary = builder.finish(&header, &file);
+        let stream_duration = started.elapsed();
+        assert_eq!(serde_json::to_value(summary).unwrap(), serde_json::to_value(expected).unwrap());
+        eprintln!("session summary: full={full_duration:?}, streaming={stream_duration:?}, retained entries={retained_entries} -> 0");
+    }
+
+    #[test]
     fn session_name_should_use_latest_info_and_allow_explicit_clear() {
         let named = vec![
             serde_json::json!({ "type": "session_info", "name": "旧名称" }),
@@ -2510,6 +2792,117 @@ mod tests {
         let parsed = parse_session(&path).expect("parse session");
 
         assert_eq!(session_name(&parsed.entries).as_deref(), Some("新名称"));
+    }
+
+    #[test]
+    fn clean_git_status_should_not_capture_the_worktree() {
+        let repo = setup_git_repo();
+        git(repo.path(), &["add", "-A"]);
+        git(repo.path(), &["commit", "-m", "clean"]);
+        let index = fs::read(repo.path().join(".git/index")).unwrap();
+        GIT_COMMAND_COUNT.with(|count| count.set(0));
+        let status = get_git_status(repo.path().to_string_lossy().into_owned()).unwrap();
+        GIT_COMMAND_COUNT.with(|count| assert_eq!(count.get(), 1));
+        assert!(status.clean);
+        assert!(status.files.is_empty());
+        assert_eq!((status.additions, status.deletions), (0, 0));
+        assert_eq!(fs::read(repo.path().join(".git/index")).unwrap(), index);
+
+        let empty = TestDir::new("empty-status");
+        git(empty.path(), &["init"]);
+        GIT_COMMAND_COUNT.with(|count| count.set(0));
+        let status = get_git_status(empty.path().to_string_lossy().into_owned()).unwrap();
+        GIT_COMMAND_COUNT.with(|count| assert_eq!(count.get(), 1));
+        assert!(status.clean);
+        assert_eq!((status.additions, status.deletions), (0, 0));
+        assert!(!empty.path().join(".git/index").exists());
+    }
+
+    #[test]
+    fn git_queries_should_reuse_head_and_preserve_index_and_rename() {
+        let repo = setup_git_repo();
+        git(repo.path(), &["add", "-A"]);
+        write_file(repo.path(), "new name.txt", "line1\nline3\n");
+        let index_before = fs::read(repo.path().join(".git/index")).unwrap();
+        let refs_before = git_output(repo.path(), &["show-ref"]);
+
+        GIT_COMMAND_COUNT.with(|count| count.set(0));
+        let status = get_git_status(repo.path().to_string_lossy().into_owned()).unwrap();
+        GIT_COMMAND_COUNT.with(|count| assert_eq!(count.get(), 6));
+        assert!(!status.clean);
+        assert_eq!((status.additions, status.deletions), (3, 0));
+        assert!(status
+            .files
+            .iter()
+            .any(|file| file.path == "new name.txt" && file.code == "RM"));
+
+        GIT_COMMAND_COUNT.with(|count| count.set(0));
+        let diff = get_git_diff(
+            repo.path().to_string_lossy().into_owned(),
+            "new name.txt".to_owned(),
+        )
+        .unwrap();
+        GIT_COMMAND_COUNT.with(|count| assert_eq!(count.get(), 6));
+        assert!(diff.contains("rename from old name.txt"));
+        assert!(diff.contains("rename to new name.txt"));
+        assert!(diff.contains("+line3"));
+        assert_eq!(
+            fs::read(repo.path().join(".git/index")).unwrap(),
+            index_before
+        );
+        assert_eq!(git_output(repo.path(), &["show-ref"]), refs_before);
+    }
+
+    #[test]
+    fn git_queries_should_reuse_missing_head() {
+        let repo = TestDir::new("git-unborn-queries");
+        git(repo.path(), &["init"]);
+        write_file(repo.path(), "new.txt", "one\ntwo\n");
+
+        GIT_COMMAND_COUNT.with(|count| count.set(0));
+        let status = get_git_status(repo.path().to_string_lossy().into_owned()).unwrap();
+        GIT_COMMAND_COUNT.with(|count| assert_eq!(count.get(), 5));
+        assert!(!status.clean);
+        assert_eq!((status.additions, status.deletions), (2, 0));
+        assert_eq!(status.files.len(), 1);
+        assert_eq!(status.files[0].code, "??");
+
+        GIT_COMMAND_COUNT.with(|count| count.set(0));
+        let diff = get_git_diff(
+            repo.path().to_string_lossy().into_owned(),
+            "new.txt".to_owned(),
+        )
+        .unwrap();
+        GIT_COMMAND_COUNT.with(|count| assert_eq!(count.get(), 5));
+        assert!(diff.contains("new file mode"));
+        assert!(diff.contains("+two"));
+        assert!(!repo.path().join(".git/index").exists());
+    }
+
+    #[test]
+    fn git_queries_should_not_cache_head_across_requests() {
+        let repo = setup_git_repo();
+        git(repo.path(), &["add", "-A"]);
+        git(repo.path(), &["commit", "-m", "rename"]);
+        let cwd = repo.path().to_string_lossy().into_owned();
+        assert!(get_git_status(cwd.clone()).unwrap().clean);
+        write_file(repo.path(), "new name.txt", "line1\nline2\nline3\n");
+        assert_eq!(get_git_status(cwd.clone()).unwrap().additions, 1);
+        git(repo.path(), &["add", "-A"]);
+        git(repo.path(), &["commit", "-m", "edit"]);
+        git(repo.path(), &["checkout", "--detach"]);
+        let status = get_git_status(cwd.clone()).unwrap();
+        assert!(status.clean);
+        assert_eq!((status.additions, status.deletions), (0, 0));
+        assert_eq!(status.branch, "detached HEAD");
+        assert!(get_git_diff(cwd, "new name.txt".to_owned())
+            .unwrap()
+            .is_empty());
+    }
+
+    /* 线程局部计数隔离并行测试；成功查询路径中每个构造的命令均会执行。 */
+    thread_local! {
+        pub(super) static GIT_COMMAND_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     }
 
     #[test]
@@ -2660,6 +3053,233 @@ mod tests {
             fs::read_to_string(clone.join("shared.txt")).unwrap(),
             "base\nsource\n"
         );
+    }
+
+    #[test]
+    fn snapshot_queries_should_not_leak_refs_or_include_later_edits() {
+        let repo = setup_git_repo();
+        let baseline = capture_snapshot_tree(repo.path()).unwrap();
+        write_file(repo.path(), "literal[1].txt", "first\n");
+        write_file(repo.path(), "literal1.txt", "other\nother\n");
+        let end = capture_snapshot_tree(repo.path()).unwrap();
+        let refs = git_output(repo.path(), &["for-each-ref", "refs/ai-desk/snapshots"]);
+        write_file(repo.path(), "literal[1].txt", "later\nmore\nlines\n");
+        let status =
+            snapshot_status_scoped(repo.path(), &baseline, &end, &["literal[1].txt".to_owned()])
+                .unwrap();
+        assert_eq!((status.additions, status.deletions), (1, 0));
+        assert_eq!(status.files.len(), 1);
+        assert_eq!(status.files[0].path, "literal[1].txt");
+        let absent =
+            snapshot_status_scoped(repo.path(), &baseline, &end, &["absent".to_owned()]).unwrap();
+        assert!(absent.clean);
+        assert_eq!(absent.additions, 0);
+        let started = std::time::Instant::now();
+        for revision in 0..3 {
+            write_file(
+                repo.path(),
+                "literal[1].txt",
+                &format!("revision {revision}\n"),
+            );
+            porcelain_status(repo.path()).unwrap();
+            snapshot_status(repo.path(), &baseline).unwrap();
+            snapshot_diff(repo.path(), &baseline, "literal[1].txt").unwrap();
+        }
+        let elapsed = started.elapsed();
+        let after = git_output(repo.path(), &["for-each-ref", "refs/ai-desk/snapshots"]);
+        println!(
+            "snapshot read measurement: 3 revisions, 9 queries, refs {} -> {}, elapsed {:?}",
+            refs.lines().count(),
+            after.lines().count(),
+            elapsed
+        );
+        assert_eq!(refs, after);
+    }
+
+    #[test]
+    fn scoped_snapshot_should_count_both_sides_of_rename() {
+        let repo = setup_git_repo();
+        let baseline = capture_worktree_tree(repo.path()).unwrap();
+        fs::rename(
+            repo.path().join("new name.txt"),
+            repo.path().join("renamed.txt"),
+        )
+        .unwrap();
+        let end = capture_worktree_tree(repo.path()).unwrap();
+        for path in ["new name.txt", "renamed.txt"] {
+            let status =
+                snapshot_status_scoped(repo.path(), &baseline, &end, &[path.to_owned()]).unwrap();
+            assert_eq!((status.additions, status.deletions), (0, 0));
+            assert_eq!(status.files.len(), 1);
+            assert!(status.files[0].code.starts_with('R'));
+        }
+        revert_snapshot(repo.path(), &baseline, &end, Some("renamed.txt")).unwrap();
+        assert!(repo.path().join("new name.txt").exists());
+        assert!(!repo.path().join("renamed.txt").exists());
+    }
+
+    #[test]
+    fn revert_snapshot_should_reject_later_edits_before_any_write() {
+        let repo = setup_git_repo();
+        let baseline = capture_worktree_tree(repo.path()).unwrap();
+        write_file(repo.path(), "a.txt", "turn\n");
+        write_file(repo.path(), "z.txt", "turn\n");
+        let end = capture_worktree_tree(repo.path()).unwrap();
+        write_file(repo.path(), "z.txt", "user edit\n");
+        git(repo.path(), &["add", "z.txt"]);
+        let index = fs::read(repo.path().join(".git/index")).unwrap();
+        assert!(revert_snapshot(repo.path(), &baseline, &end, None).is_err());
+        assert_eq!(
+            fs::read_to_string(repo.path().join("a.txt")).unwrap(),
+            "turn\n"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.path().join("z.txt")).unwrap(),
+            "user edit\n"
+        );
+        assert_eq!(index, fs::read(repo.path().join(".git/index")).unwrap());
+        revert_snapshot(repo.path(), &baseline, &end, Some("a.txt")).unwrap();
+        assert!(!repo.path().join("a.txt").exists());
+        assert_eq!(index, fs::read(repo.path().join(".git/index")).unwrap());
+    }
+
+    #[test]
+    fn revert_snapshot_should_preserve_replacement_directory_and_ignored_files() {
+        let repo = setup_git_repo();
+        let baseline = capture_worktree_tree(repo.path()).unwrap();
+        write_file(repo.path(), "added", "turn\n");
+        let end = capture_worktree_tree(repo.path()).unwrap();
+        fs::remove_file(repo.path().join("added")).unwrap();
+        write_file(repo.path(), "added/user.txt", "keep\n");
+        git(repo.path(), &["config", "core.excludesFile", "/dev/null"]);
+        write_file(repo.path(), ".git/info/exclude", "added/\n");
+        assert!(revert_snapshot(repo.path(), &baseline, &end, None).is_err());
+        assert_eq!(
+            fs::read_to_string(repo.path().join("added/user.txt")).unwrap(),
+            "keep\n"
+        );
+    }
+
+    #[test]
+    fn revert_snapshot_should_restore_binary_without_changing_index() {
+        let repo = setup_git_repo();
+        fs::write(repo.path().join("binary"), [0, 1, 2, 3]).unwrap();
+        let baseline = capture_worktree_tree(repo.path()).unwrap();
+        fs::write(repo.path().join("binary"), [0, 4, 5, 6]).unwrap();
+        let end = capture_worktree_tree(repo.path()).unwrap();
+        git(repo.path(), &["add", "binary"]);
+        let index = fs::read(repo.path().join(".git/index")).unwrap();
+        revert_snapshot(repo.path(), &baseline, &end, None).unwrap();
+        assert_eq!(fs::read(repo.path().join("binary")).unwrap(), [0, 1, 2, 3]);
+        assert_eq!(index, fs::read(repo.path().join(".git/index")).unwrap());
+    }
+
+    #[test]
+    fn revert_snapshot_should_not_overwrite_recreated_rename_source_or_deleted_file() {
+        for rename in [false, true] {
+            let repo = setup_git_repo();
+            let baseline = capture_worktree_tree(repo.path()).unwrap();
+            if rename {
+                fs::rename(
+                    repo.path().join("new name.txt"),
+                    repo.path().join("destination.txt"),
+                )
+                .unwrap();
+            } else {
+                fs::remove_file(repo.path().join("new name.txt")).unwrap();
+            }
+            let end = capture_worktree_tree(repo.path()).unwrap();
+            write_file(repo.path(), "new name.txt", "user replacement\n");
+            assert!(revert_snapshot(repo.path(), &baseline, &end, None).is_err());
+            assert_eq!(
+                fs::read_to_string(repo.path().join("new name.txt")).unwrap(),
+                "user replacement\n"
+            );
+            if rename {
+                assert!(repo.path().join("destination.txt").exists());
+            }
+        }
+    }
+
+    #[test]
+    fn revert_snapshot_should_reject_later_modification_of_existing_file() {
+        let repo = setup_git_repo();
+        let baseline = capture_worktree_tree(repo.path()).unwrap();
+        write_file(repo.path(), "new name.txt", "turn\n");
+        let end = capture_worktree_tree(repo.path()).unwrap();
+        write_file(repo.path(), "new name.txt", "turn\nlater\n");
+        assert!(revert_snapshot(repo.path(), &baseline, &end, Some("new name.txt")).is_err());
+        assert_eq!(
+            fs::read_to_string(repo.path().join("new name.txt")).unwrap(),
+            "turn\nlater\n"
+        );
+    }
+
+    #[test]
+    fn async_git_command_should_return_status() {
+        let repo = setup_git_repo();
+        let status = tauri::async_runtime::block_on(git_commands::get_git_status(
+            repo.path().to_string_lossy().into_owned(),
+        ))
+        .unwrap();
+        assert!(!status.clean);
+    }
+
+    #[test]
+    fn scoped_rename_destination_should_include_deleted_lines() {
+        let repo = setup_git_repo();
+        write_file(
+            repo.path(),
+            "source.txt",
+            "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n",
+        );
+        let baseline = capture_worktree_tree(repo.path()).unwrap();
+        fs::rename(
+            repo.path().join("source.txt"),
+            repo.path().join("target.txt"),
+        )
+        .unwrap();
+        write_file(
+            repo.path(),
+            "target.txt",
+            "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n",
+        );
+        let end = capture_worktree_tree(repo.path()).unwrap();
+        write_file(repo.path(), "target.txt", "later\n");
+        let status =
+            snapshot_status_scoped(repo.path(), &baseline, &end, &["target.txt".to_owned()]).unwrap();
+        assert_eq!((status.additions, status.deletions), (0, 2));
+        assert_eq!(status.files.len(), 1);
+        assert!(status.files[0].code.starts_with('R'));
+    }
+
+    #[test]
+    fn revert_all_after_single_should_skip_restored_files_but_reject_new_edits() {
+        for later_edit in [false, true] {
+            let repo = setup_git_repo();
+            let baseline = capture_worktree_tree(repo.path()).unwrap();
+            write_file(repo.path(), "new name.txt", "turn\n");
+            write_file(repo.path(), "added.txt", "turn\n");
+            let end = capture_worktree_tree(repo.path()).unwrap();
+            revert_snapshot(repo.path(), &baseline, &end, Some("new name.txt")).unwrap();
+            if later_edit {
+                write_file(repo.path(), "new name.txt", "new user edit\n");
+                assert!(revert_snapshot(repo.path(), &baseline, &end, None).is_err());
+                assert_eq!(
+                    fs::read_to_string(repo.path().join("new name.txt")).unwrap(),
+                    "new user edit\n"
+                );
+                assert!(repo.path().join("added.txt").exists());
+            } else {
+                revert_snapshot(repo.path(), &baseline, &end, None).unwrap();
+                revert_snapshot(repo.path(), &baseline, &end, None).unwrap();
+                assert_eq!(
+                    fs::read_to_string(repo.path().join("new name.txt")).unwrap(),
+                    "line1\nline2\n"
+                );
+                assert!(!repo.path().join("added.txt").exists());
+            }
+        }
     }
 
     #[test]

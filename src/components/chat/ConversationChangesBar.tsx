@@ -21,6 +21,10 @@ export function ConversationChangesBar({ change, onViewChanges, onRefresh, onPre
     Promise.resolve(onRevert(path)).finally(() => setReverting(null));
   };
 
+  if (change.error || !change.endTree) {
+    return <div data-slot="conversation-changes" data-phase="completed" data-layout="banner" role="alert" className={`${COMPLETED_BANNER_CLASS} flex min-h-9 items-center gap-2 text-[var(--font-size-11)] text-[var(--error)]`}><span className="min-w-0 flex-1 break-words">{change.error ?? "本次执行变更统计失败"}</span>{change.endTree && <Button type="button" variant="ghost" size="xs" onClick={onRefresh}>刷新</Button>}</div>;
+  }
+
   if (!fileCount) {
     return <div data-slot="conversation-changes" data-phase="completed" data-layout="banner" className={`${COMPLETED_BANNER_CLASS} flex min-h-9 items-center gap-2 text-[var(--font-size-11)] text-[var(--text-secondary)]`}><FileText className="size-3.5 text-[var(--text-tertiary)]" /><strong className="font-medium text-[var(--text-secondary)]">本次执行未修改文件</strong></div>;
   }

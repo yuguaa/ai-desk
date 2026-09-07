@@ -11,6 +11,7 @@ export type ConversationTurnChanges = {
   endTree: string | null;
   phase: "running" | "completed";
   completedAt?: number;
+  error?: string;
   status: GitStatus | null;
 };
 
@@ -48,6 +49,16 @@ export function loadConversationTurnChanges() {
 
 export type ReleasedSnapshot = { cwd: string; tree: string };
 
+export function retainConversationTurnChanges(changes: Record<string, ConversationTurnChanges>) {
+  const completed = Object.entries(changes)
+    .filter(([, entry]) => entry.phase === "completed")
+    .sort(([, left], [, right]) => (left.completedAt ?? 0) - (right.completedAt ?? 0));
+  return Object.fromEntries([
+    ...Object.entries(changes).filter(([, entry]) => entry.phase === "running"),
+    ...completed.slice(-MAX_PERSISTED_TURNS),
+  ]);
+}
+
 export function saveConversationTurnChanges(changes: Record<string, ConversationTurnChanges>) {
   if (typeof localStorage === "undefined") return [] as ReleasedSnapshot[];
 
@@ -55,22 +66,27 @@ export function saveConversationTurnChanges(changes: Record<string, Conversation
     .filter(([, entry]) => entry.phase === "completed")
     .sort(([, left], [, right]) => (left.completedAt ?? 0) - (right.completedAt ?? 0));
   const retainedEntries = completedEntries.slice(-MAX_PERSISTED_TURNS);
-  const retainedTrees = new Set(
-    retainedEntries.flatMap(([, entry]) => [entry.baselineTree, entry.endTree].filter((tree): tree is string => Boolean(tree))),
-  );
+  const snapshotKey = (cwd: string, tree: string) => JSON.stringify([cwd, tree]);
+  /* 运行中的基线仍需保活，Git 对象 ID 也必须按仓库隔离。 */
+  const retainedTrees = new Set(Object.values(retainConversationTurnChanges(changes))
+    .flatMap((entry) => [entry.baselineTree, entry.endTree]
+      .filter((tree): tree is string => Boolean(tree))
+      .map((tree) => snapshotKey(entry.cwd, tree))));
   const released = completedEntries
     .slice(0, -MAX_PERSISTED_TURNS)
     .flatMap(([, entry]) => [
       { cwd: entry.cwd, tree: entry.baselineTree },
       ...(entry.endTree ? [{ cwd: entry.cwd, tree: entry.endTree }] : []),
     ])
-    .filter(({ tree }) => !retainedTrees.has(tree));
+    .filter(({ cwd, tree }) => !retainedTrees.has(snapshotKey(cwd, tree)))
+    .filter((entry, index, entries) => entries.findIndex((other) => other.cwd === entry.cwd && other.tree === entry.tree) === index);
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.fromEntries(retainedEntries)));
   } catch {
     /*
      * 统计持久化不能中断对话主流程，内存中的本轮结果仍然可正常展示。
      */
+    return [] as ReleasedSnapshot[];
   }
   return released;
 }
@@ -96,11 +112,20 @@ export function getConversationChanges(snapshotStatus: ConversationSnapshotStatu
   };
 }
 
+export function areConversationStatusesEqual(left: GitStatus | null, right: GitStatus | null) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return left.branch === right.branch && left.clean === right.clean
+    && left.additions === right.additions && left.deletions === right.deletions
+    && left.files.length === right.files.length
+    && left.files.every((file, index) => file.path === right.files[index].path && file.code === right.files[index].code);
+}
+
 function normalizeSnapshotFiles(files: GitFileStatus[]) {
   const normalizedFiles = new Map<string, GitFileStatus>();
 
   files.forEach((file) => {
-    const path = file.path.trim();
+    const path = file.path;
     if (!path) return;
     normalizedFiles.set(path, { path, code: file.code.trimEnd() || file.code });
   });
@@ -135,6 +160,7 @@ function normalizeStoredTurnChanges(value: unknown): ConversationTurnChanges | n
     endTree,
     phase: "completed",
     completedAt: typeof entry.completedAt === "number" && Number.isFinite(entry.completedAt) ? entry.completedAt : undefined,
+    error: typeof entry.error === "string" ? entry.error : undefined,
     status: getConversationChanges(status),
   };
 }

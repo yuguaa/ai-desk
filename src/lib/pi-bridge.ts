@@ -22,7 +22,6 @@ export type PiSessionView = {
   cwd: string;
   name?: string;
   leafId?: string;
-  entries: Record<string, unknown>[];
   activeEntries: Record<string, unknown>[];
 };
 

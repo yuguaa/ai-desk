@@ -71,9 +71,12 @@ export function buildFileTree(files: WorkspaceFile[]) {
         node.size = entry.size;
       }
       byPath.set(path, node);
-      if (parentPath) {
+      /*
+       * 路径索引已完成去重，仅在创建节点时挂载到父级。
+       */
+      if (parentPath && !existing) {
         const parent = byPath.get(parentPath);
-        if (parent && !parent.children.some((child) => child.path === path)) parent.children.push(node);
+        if (parent) parent.children.push(node);
       }
       parentPath = path;
     });

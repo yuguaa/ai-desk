@@ -42,8 +42,8 @@ describe("SettingsPage", () => {
     expect(html).not.toContain("工程师");
     expect((html.match(/data-slot="switch"/g) ?? []).length).toBe(2);
     expect((html.match(/data-slot="input-number"/g) ?? []).length).toBe(4);
-    expect(html).toMatch(/aria-label="背景透明度"[^>]*min="20"[^>]*max="100"[^>]*step="1"/);
-    expect(html).toMatch(/aria-label="容器内边距"[^>]*min="8"[^>]*max="20"[^>]*step="1"/);
+    expect(html).toMatch(/aria-label="背景透明度"[^>]*min="0"[^>]*max="100"/);
+    expect(html).not.toMatch(/aria-label="(?:字体大小|容器内边距|统一圆角)"[^>]*max=/);
     expect((html.match(/data-slot="select-trigger"/g) ?? []).length).toBe(1);
     expect((html.match(/data-slot="toggle-group"/g) ?? []).length).toBe(4);
     expect((html.match(/data-slot="toggle-group-item"/g) ?? []).length).toBe(20);
@@ -66,6 +66,8 @@ describe("SettingsPage", () => {
     expect(html).toContain('value="https://example.com/mascot.png"');
     expect(html).toContain('value="https://example.com/second.png"');
     expect(html).toContain('src="https://example.com/mascot.png"');
+    expect(html).toContain('src="https://example.com/second.png"');
+    expect((html.match(/data-slot="mascot-url-card"/g) ?? []).length).toBe(2);
     expect(html).toContain("aspect-video");
     expect(html).toContain("min-[540px]:grid-cols-[184px_minmax(0,1fr)]");
     expect(html).not.toContain("绯红魅影");

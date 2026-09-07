@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { memo, useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { ArrowUp, Brain, Check, ChevronDown, Cpu, Square } from "@/components/ui/icons";
@@ -12,6 +12,14 @@ import type { PiContextUsage, PiModel } from "@/lib/pi-runtime";
 import { cn } from "@/lib/utils";
 
 type PromptModel = Pick<PiModel, "id" | "name" | "provider">;
+
+type PromptInputState = {
+  value: string;
+  isRunning?: boolean;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  onAbort?: () => void;
+};
 
 export function PromptInput({
   value,
@@ -60,64 +68,15 @@ export function PromptInput({
   onSteerQueuedTurn?: (turnId: string) => void;
   onEditQueuedTurn?: (turnId: string) => void;
 }) {
-  const onChangeRef = useRef(onChange);
-  const onSubmitRef = useRef(onSubmit);
-  const onAbortRef = useRef(onAbort);
-  const isRunningRef = useRef(Boolean(isRunning));
-  const valueRef = useRef(value);
-  onChangeRef.current = onChange;
-  onSubmitRef.current = onSubmit;
-  onAbortRef.current = onAbort;
-  isRunningRef.current = Boolean(isRunning);
-  valueRef.current = value;
-
-  const editor = useEditor({
-    extensions: [StarterKit.configure({ heading: false, blockquote: false, codeBlock: false, horizontalRule: false, bulletList: false, orderedList: false, listItem: false })],
-    content: documentFromText(value),
-    immediatelyRender: false,
-    editorProps: {
-      attributes: {
-        class: "prompt-editor-content",
-        "data-placeholder": placeholder,
-        "aria-label": `${placeholder}，Enter 发送，Shift + Enter 换行`,
-        "aria-multiline": "true",
-        role: "textbox",
-      },
-      handleKeyDown: (_view, event) => {
-        if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return false;
-
-        event.preventDefault();
-        if (isRunningRef.current && !valueRef.current.trim()) onAbortRef.current?.();
-        else onSubmitRef.current();
-        return true;
-      },
-    },
-    onUpdate: ({ editor: nextEditor }) => onChangeRef.current(nextEditor.getText({ blockSeparator: "\n" })),
-  });
-
-  useEffect(() => {
-    if (!editor) return;
-    const current = editor.getText({ blockSeparator: "\n" });
-    if (current !== value) editor.commands.setContent(documentFromText(value), { emitUpdate: false });
-  }, [editor, value]);
-
-  useEffect(() => {
-    if (!editor) return;
-    const action = isRunning && !value.trim() ? "中止任务" : editingQueuedTurnId ? "保存队列任务" : isRunning ? "加入队列" : "发送";
-    editor.view.dom.setAttribute("aria-label", `${placeholder}，Enter ${action}，Shift + Enter 换行`);
-  }, [editingQueuedTurnId, editor, isRunning, placeholder, value]);
+  const inputRef = useRef<PromptInputState>({ value, isRunning, onChange, onSubmit, onAbort });
+  inputRef.current = { value, isRunning, onChange, onSubmit, onAbort };
+  const action = isRunning && !value.trim() ? "中止任务" : editingQueuedTurnId ? "保存队列任务" : isRunning ? "加入队列" : "发送";
 
   return (
     <>
       <ConversationQueue turns={queuedTurns} editingTurnId={editingQueuedTurnId} onReorder={onReorderQueuedTurn} onRemove={onRemoveQueuedTurn} onSteer={onSteerQueuedTurn} onEdit={onEditQueuedTurn} />
-      <form onSubmit={(event) => { event.preventDefault(); if (isRunningRef.current && !valueRef.current.trim()) onAbortRef.current?.(); else onSubmitRef.current(); }} className={cn("overflow-hidden rounded-[var(--radius-composer)] border border-[var(--composer-border)] bg-[var(--composer-bg)] transition-[background-color,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:border-[var(--accent)] focus-within:bg-[var(--composer-bg-hover)]", className)}>
-      <div className="relative">
-        {!value && <span data-slot="prompt-placeholder" className="pointer-events-none absolute left-3.5 top-3 z-10 text-[var(--font-size-13)] leading-5 text-[var(--text-disabled)]">{placeholder}</span>}
-        <EditorContent
-          editor={editor}
-          className="prompt-editor"
-        />
-      </div>
+      <form onSubmit={(event) => { event.preventDefault(); submitPrompt(inputRef.current); }} className={cn("overflow-hidden rounded-[var(--radius-composer)] border border-[var(--composer-border)] bg-[var(--composer-bg)] transition-[background-color,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:border-[var(--accent)] focus-within:bg-[var(--composer-bg-hover)]", className)}>
+      <PromptEditor value={value} placeholder={placeholder} action={action} inputRef={inputRef} />
       <div data-slot="prompt-toolbar" className="flex min-w-0 items-center justify-between gap-2 px-2 pb-2 pt-1">
         <div className="flex min-w-0 items-center gap-1">
           {footer}
@@ -144,6 +103,57 @@ export function PromptInput({
       </form>
     </>
   );
+}
+
+/* 正文增量和工具栏更新不重建编辑器配置，事件仍读取最新的提交与中止回调。 */
+const PromptEditor = memo(function PromptEditor({ value, placeholder, action, inputRef }: {
+  value: string;
+  placeholder: string;
+  action: string;
+  inputRef: RefObject<PromptInputState>;
+}) {
+  const editor = useEditor({
+    extensions: [StarterKit.configure({ heading: false, blockquote: false, codeBlock: false, horizontalRule: false, bulletList: false, orderedList: false, listItem: false })],
+    content: documentFromText(value),
+    immediatelyRender: false,
+    editorProps: {
+      attributes: {
+        class: "prompt-editor-content",
+        "data-placeholder": placeholder,
+        "aria-label": `${placeholder}，Enter 发送，Shift + Enter 换行`,
+        "aria-multiline": "true",
+        role: "textbox",
+      },
+      handleKeyDown: (_view, event) => {
+        if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return false;
+        event.preventDefault();
+        submitPrompt(inputRef.current);
+        return true;
+      },
+    },
+    onUpdate: ({ editor: nextEditor }) => inputRef.current.onChange(nextEditor.getText({ blockSeparator: "\n" })),
+  });
+
+  useEffect(() => {
+    if (!editor) return;
+    const current = editor.getText({ blockSeparator: "\n" });
+    if (current !== value) editor.commands.setContent(documentFromText(value), { emitUpdate: false });
+  }, [editor, value]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.view.dom.setAttribute("aria-label", `${placeholder}，Enter ${action}，Shift + Enter 换行`);
+  }, [action, editor, placeholder, value]);
+
+  return <div className="relative">
+    {!value && <span data-slot="prompt-placeholder" className="pointer-events-none absolute left-3.5 top-3 z-10 text-[var(--font-size-13)] leading-5 text-[var(--text-disabled)]">{placeholder}</span>}
+    <EditorContent editor={editor} className="prompt-editor" />
+  </div>;
+});
+
+function submitPrompt({ value, isRunning, onAbort, onSubmit }: PromptInputState) {
+  if (isRunning && !value.trim()) onAbort?.();
+  else onSubmit();
 }
 
 function ContextUsageRing({ usage }: { usage?: PiContextUsage | null }) {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { PiConversationState } from "@/lib/pi-runtime";
 import {
   applyPiError,
   applyPiExtensionUiRequest,
@@ -11,6 +12,66 @@ import {
 } from "@/lib/pi-runtime-state";
 
 describe("Pi runtime state", () => {
+  const extension = (method: string, data: Record<string, unknown> = {}) => (state: PiConversationState) =>
+    applyPiExtensionUiRequest(state, { type: "extension_ui_request", id: "new-request", method, ...data });
+  const rpc = (command: string, data: Record<string, unknown> = {}) => (state: PiConversationState) =>
+    applyPiRpcResponse(state, { command, success: true, data });
+
+  it.each<[string, (state: PiConversationState) => PiConversationState, (keyof PiConversationState)[]]>([
+    ["state RPC", rpc("get_state", { model: { id: "next", provider: "test" }, thinkingLevel: "high" }), ["model", "thinkingLevel", "lastError"]],
+    ["model RPC", rpc("set_model", { id: "next", provider: "test" }), ["model", "lastError"]],
+    ["models RPC", rpc("get_available_models", { models: [{ id: "next", provider: "test" }] }), ["availableModels", "lastError"]],
+    ["levels RPC", rpc("get_available_thinking_levels", { levels: ["high"] }), ["availableThinkingLevels", "lastError"]],
+    ["stats RPC", rpc("get_session_stats", { contextUsage: { tokens: 10, contextWindow: 100, percent: 10 } }), ["contextUsage", "lastError"]],
+    ["thinking RPC", rpc("set_thinking_level", { level: "high" }), ["thinkingLevel", "lastError"]],
+    ["unrelated RPC", rpc("prompt"), ["lastError"]],
+    ["failed RPC", (state) => applyPiRpcResponse(state, { command: "prompt", success: false, error: "failed" }), ["lastError"]],
+    ["pending command", (state) => trackPendingPiCommand(state, "cmd-2"), ["pendingCommandIds"]],
+    ["duplicate command", (state) => trackPendingPiCommand(state, "cmd-1"), []],
+    ["settled command", (state) => settlePendingPiCommand(state, "cmd-1"), ["pendingCommandIds"]],
+    ["stderr", (state) => applyPiProcessStderr(state, "failed"), ["lastStderr", "lastError"]],
+    ["error", (state) => applyPiError(state, "failed"), ["lastError"]],
+    ["select", extension("select", { options: ["A"] }), ["extensionRequestQueue"]],
+    ["confirm", extension("confirm"), ["extensionRequestQueue"]],
+    ["input", extension("input"), ["extensionRequestQueue"]],
+    ["editor", extension("editor", { prefill: "new text" }), ["extensionRequestQueue", "extensionEditorText"]],
+    ["duplicate dialog", extension("input", { id: "req-1" }), []],
+    ["notification", extension("notify", { message: "new message" }), ["extensionNotifications"]],
+    ["status", extension("setStatus", { statusKey: "sync", statusText: "done" }), ["extensionStatuses"]],
+    ["remove status", extension("setStatus", { statusKey: "sync" }), ["extensionStatuses"]],
+    ["widget", extension("setWidget", { widgetKey: "review", widgetLines: ["new line"] }), ["extensionWidgets"]],
+    ["remove widget", extension("setWidget", { widgetKey: "review" }), ["extensionWidgets"]],
+    ["title", extension("setTitle", { title: "new title" }), ["extensionTitle"]],
+    ["editor text", extension("set_editor_text", { text: "new text" }), ["extensionEditorText"]],
+    ["invalid extension", extension("invalid"), []],
+    ["clear dialog", (state) => clearActiveExtensionRequest(state, "req-1"), ["extensionRequestQueue", "activeExtensionRequest"]],
+  ])("%s 只替换修改字段，保留其他引用且不修改冻结的旧状态", (_name, update, changedKeys) => {
+    const state = createPopulatedState();
+    const snapshot = structuredClone(state);
+    freezeState(state);
+    const next = update(state);
+
+    expect(next).not.toBe(state);
+    expect(state).toEqual(snapshot);
+    for (const key of Object.keys(state) as (keyof PiConversationState)[]) {
+      if (changedKeys.includes(key)) expect(next[key], key).not.toBe(state[key]);
+      else expect(next[key], key).toBe(state[key]);
+    }
+  });
+
+  it("从空状态分叉的会话不会互相污染，也不会修改共享默认值", () => {
+    const snapshot = structuredClone(EMPTY_PI_CONVERSATION_STATE);
+    const first = applyPiExtensionUiRequest(undefined, { type: "extension_ui_request", id: "status", method: "setStatus", statusKey: "sync", statusText: "running" });
+    const second = trackPendingPiCommand(undefined, "cmd-1");
+    const updated = extension("setWidget", { widgetKey: "review", widgetLines: ["line"] })(first);
+
+    expect(second.extensionStatuses).toEqual({});
+    expect(first.pendingCommandIds).toEqual([]);
+    expect(first.extensionWidgets).toEqual({});
+    expect(updated.extensionWidgets.review.lines).toEqual(["line"]);
+    expect(EMPTY_PI_CONVERSATION_STATE).toEqual(snapshot);
+  });
+
   it("projects model and thinking metadata from RPC responses", () => {
     let state = applyPiRpcResponse(undefined, { type: "response", command: "get_state", success: true, data: { model: { id: "model-a", provider: "provider-a", name: "Model A", reasoning: true, contextWindow: 1_000_000 }, thinkingLevel: "medium" } });
     state = applyPiRpcResponse(state, { type: "response", command: "get_available_models", success: true, data: { models: [{ id: "model-a", provider: "provider-a" }, { id: "model-b", provider: "provider-b" }, { provider: "invalid" }] } });
@@ -93,3 +154,29 @@ describe("Pi runtime state", () => {
     expect(clearActiveExtensionRequest(nextRequest, "req-2").activeExtensionRequest).toBeNull();
   });
 });
+
+function createPopulatedState(): PiConversationState {
+  const request = { type: "extension_ui_request", id: "req-1", method: "input", title: "Input" } as const;
+  return {
+    ...EMPTY_PI_CONVERSATION_STATE,
+    model: { id: "model-a", provider: "test" },
+    thinkingLevel: "low",
+    contextUsage: { tokens: 1, contextWindow: 100, percent: 1 },
+    availableModels: [{ id: "model-a", provider: "test" }],
+    availableThinkingLevels: ["low"],
+    pendingCommandIds: ["cmd-1"],
+    lastError: "previous error",
+    activeExtensionRequest: request,
+    extensionRequestQueue: [request],
+    extensionNotifications: [{ id: "note-1", message: "ready", notifyType: "info" }],
+    extensionStatuses: { sync: "running" },
+    extensionWidgets: { review: { key: "review", lines: ["line"], placement: "aboveEditor" } },
+  };
+}
+
+function freezeState(value: object) {
+  Object.values(value).forEach((child) => {
+    if (child && typeof child === "object") freezeState(child);
+  });
+  Object.freeze(value);
+}

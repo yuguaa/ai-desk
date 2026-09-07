@@ -168,6 +168,18 @@ describe("SettingsPage navigation", () => {
     act(() => addButton?.click());
 
     expect(container.querySelectorAll('input[aria-label^="看板娘图片地址 "]')).toHaveLength(3);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="选择第 3 张网络图片"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="选择第 1 张网络图片"]')?.getAttribute("aria-pressed")).toBe("true");
+
+    const input = container.querySelector<HTMLInputElement>('input[aria-label="看板娘图片地址 3"]')!;
+    act(() => {
+      input.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "https://example.com/third.png");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelector('img[src="https://example.com/third.png"]')).not.toBeNull();
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="选择第 1 张网络图片"]')?.getAttribute("aria-pressed")).toBe("true");
+    act(() => container?.querySelector<HTMLButtonElement>('button[aria-label="选择第 3 张网络图片"]')?.click());
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="选择第 3 张网络图片"]')?.getAttribute("aria-pressed")).toBe("true");
 
     act(() => container?.querySelector<HTMLButtonElement>('button[aria-label="选择第 1 张网络图片"]')?.click());
@@ -176,6 +188,23 @@ describe("SettingsPage navigation", () => {
     act(() => container?.querySelector<HTMLButtonElement>('button[aria-label="删除第 2 个看板娘图片链接"]')?.click());
     expect(container.querySelectorAll('input[aria-label^="看板娘图片地址 "]')).toHaveLength(2);
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="选择第 1 张网络图片"]')?.getAttribute("aria-pressed")).toBe("true");
+
+    const preview = container.querySelector<HTMLImageElement>('[data-slot="mascot-url-card"] img[src="https://example.com/third.png"]')!;
+    act(() => preview.dispatchEvent(new Event("error")));
+    expect(container.textContent).toContain("图片加载失败");
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="选择第 2 张网络图片"]')?.disabled).toBe(true);
+
+    const secondInput = container.querySelector<HTMLInputElement>('input[aria-label="看板娘图片地址 2"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(secondInput, "https://example.com/replaced.png");
+      secondInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelector('img[src="https://example.com/replaced.png"]')).not.toBeNull();
+    expect(container.textContent).not.toContain("图片加载失败");
+    act(() => container?.querySelector<HTMLButtonElement>('button[aria-label="选择第 2 张网络图片"]')?.click());
+    act(() => container?.querySelector<HTMLButtonElement>('button[aria-label="删除第 1 个看板娘图片链接"]')?.click());
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="选择第 1 张网络图片"]')?.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="看板娘图片地址 1"]')?.value).toBe("https://example.com/replaced.png");
 
     act(() => vi.runOnlyPendingTimers());
     vi.useRealTimers();

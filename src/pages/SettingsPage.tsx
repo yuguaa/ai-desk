@@ -54,7 +54,6 @@ export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onU
   const addMascotImageUrl = () => {
     const nextUrls = [...settings.mascotImageUrls, ""];
     change("mascotImageUrls", nextUrls);
-    change("mascotImageUrlIndex", nextUrls.length - 1);
     saveIndicator();
   };
 
@@ -120,10 +119,10 @@ export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onU
                 </Select>
               </SettingRow>
 
-              <NumberSetting label="字体大小" description="只调整文字，不改变按钮和面板的固定尺寸。" value={settings.fontSize} min={11} max={16} step={0.5} onChange={(value) => { change("fontSize", value); saveIndicator(); }} />
-              <NumberSetting label="容器内边距" description="统一调整页面、面板和内容区域的留白。" value={settings.containerPadding} min={8} max={20} step={1} onChange={(value) => { change("containerPadding", value); saveIndicator(); }} />
-              <NumberSetting label="统一圆角" description="同时调整按钮、输入框、面板和弹层的圆角尺度。" value={settings.cornerRadius} min={0} max={14} step={1} onChange={(value) => { change("cornerRadius", value); saveIndicator(); }} />
-              <NumberSetting label="背景透明度" description="调整窗口与内容面板透明度；菜单和弹窗保留可读性。" value={settings.backgroundOpacity} min={0.2} max={1} step={0.01} scale={100} onChange={(value) => { change("backgroundOpacity", value); saveIndicator(); }} />
+              <NumberSetting label="字体大小" description="只调整文字，不改变按钮和面板的固定尺寸。" value={settings.fontSize} step={0.5} isValid={(value) => value > 0} onChange={(value) => { change("fontSize", value); saveIndicator(); }} />
+              <NumberSetting label="容器内边距" description="统一调整页面、面板和内容区域的留白。" value={settings.containerPadding} min={0} step={1} onChange={(value) => { change("containerPadding", value); saveIndicator(); }} />
+              <NumberSetting label="统一圆角" description="同时调整按钮、输入框、面板和弹层的圆角尺度。" value={settings.cornerRadius} min={0} step={1} onChange={(value) => { change("cornerRadius", value); saveIndicator(); }} />
+              <NumberSetting label="背景透明度" description="调整窗口与内容面板透明度；菜单和弹窗保留可读性。" value={settings.backgroundOpacity} min={0} max={1} step={0.01} scale={100} onChange={(value) => { change("backgroundOpacity", value); saveIndicator(); }} />
             </SettingsGroup>
           </SettingsSection>
 
@@ -237,8 +236,8 @@ function SettingsGroup({ children }: { children: ReactNode }) {
   return <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] divide-y divide-[var(--border-subtle)]">{children}</div>;
 }
 
-function NumberSetting({ label, description, value, min, max, step, scale = 1, onChange }: { label: string; description: string; value: number; min: number; max: number; step: number; scale?: number; onChange: (value: number) => void }) {
-  return <SettingRow label={label} description={description}><div className="flex justify-end"><InputNumber aria-label={label} value={value * scale} min={min * scale} max={max * scale} step={step * scale} onValueChange={(nextValue) => onChange(nextValue / scale)} /></div></SettingRow>;
+function NumberSetting({ label, description, value, min, max, step, scale = 1, isValid, onChange }: { label: string; description: string; value: number; min?: number; max?: number; step: number; scale?: number; isValid?: (value: number) => boolean; onChange: (value: number) => void }) {
+  return <SettingRow label={label} description={description}><div className="flex justify-end"><InputNumber aria-label={label} value={value * scale} min={min === undefined ? undefined : min * scale} max={max === undefined ? undefined : max * scale} step={step * scale} isValid={isValid ? (nextValue) => isValid(nextValue / scale) : undefined} onValueChange={(nextValue) => onChange(nextValue / scale)} /></div></SettingRow>;
 }
 
 function SettingRow({ label, description, children }: { label: string; description: string; children: ReactNode }) {
@@ -250,11 +249,22 @@ function MascotOption({ option, active }: { option: (typeof MASCOT_OPTIONS)[numb
 }
 
 function MascotUrlList({ urls, selectedIndex, onAdd, onRemove, onSelect, onUpdate, onBlur }: { urls: string[]; selectedIndex: number; onAdd: () => void; onRemove: (index: number) => void; onSelect: (index: number) => void; onUpdate: (index: number, value: string) => void; onBlur: () => void }) {
-  return <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]"><div className="flex h-9 items-center justify-between border-b border-[var(--border-subtle)] px-2.5"><div><p className="text-[var(--font-size-10-5)] text-[var(--text-secondary)]">网络图片链接</p><p className="text-[var(--font-size-9)] text-[var(--text-tertiary)]">选择一条链接作为当前图片</p></div><Button type="button" variant="ghost" size="xs" onClick={onAdd} aria-label="添加看板娘图片链接"><Plus size={12} />添加</Button></div><div className="max-h-64 space-y-1.5 overflow-y-auto p-2">{urls.map((url, index) => {
-    const active = selectedIndex === index;
-    const invalid = url.length > 0 && !normalizeMascotImageUrl(url);
-    return <div key={index} data-active={active ? "true" : "false"} className="flex items-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--bg-window)] p-1 data-[active=true]:bg-[var(--accent-tint)]"><Button type="button" variant={active ? "secondary" : "ghost"} size="icon-xs" aria-label={`选择第 ${index + 1} 张网络图片`} aria-pressed={active} onClick={() => onSelect(index)} className={cn("font-mono text-[var(--font-size-10)]", active && "text-[var(--accent)]")}>{active ? <Check size={12} /> : index + 1}</Button><Input aria-label={`看板娘图片地址 ${index + 1}`} aria-invalid={invalid} value={url} onFocus={() => onSelect(index)} onChange={(event) => onUpdate(index, event.currentTarget.value)} onBlur={onBlur} placeholder="https://example.com/mascot.png" spellCheck={false} className="font-mono text-[var(--font-size-10)]" /><Button type="button" variant="ghost" size="icon-xs" aria-label={`删除第 ${index + 1} 个看板娘图片链接`} title="删除链接" disabled={urls.length === 1} onClick={() => onRemove(index)}><Trash2 size={12} /></Button></div>;
-  })}</div></div>;
+  return <div className="min-w-0"><div className="mb-2 flex items-center justify-between"><p className="text-[var(--font-size-10-5)] text-[var(--text-secondary)]">网络图片</p><Button type="button" variant="ghost" size="xs" onClick={onAdd} aria-label="添加看板娘图片链接"><Plus size={12} />添加</Button></div><div className="grid grid-cols-1 gap-2 min-[700px]:grid-cols-2">{urls.map((url, index) => <MascotUrlCard key={index} url={url} index={index} active={selectedIndex === index} canRemove={urls.length > 1} onSelect={() => onSelect(index)} onRemove={() => onRemove(index)} onUpdate={(value) => onUpdate(index, value)} onBlur={onBlur} />)}</div></div>;
+}
+
+function MascotUrlCard({ url, index, active, canRemove, onSelect, onRemove, onUpdate, onBlur }: { url: string; index: number; active: boolean; canRemove: boolean; onSelect: () => void; onRemove: () => void; onUpdate: (value: string) => void; onBlur: () => void }) {
+  const source = normalizeMascotImageUrl(url);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const failed = source !== null && failedSource === source;
+  const invalid = url.trim().length > 0 && !source;
+
+  return <div data-slot="mascot-url-card" data-active={active} className={cn("min-w-0 overflow-hidden rounded-md border bg-[var(--bg-surface)]", active ? "border-[var(--accent-border)]" : "border-[var(--border-subtle)]")}>
+    <Button type="button" variant="ghost" aria-label={`选择第 ${index + 1} 张网络图片`} aria-pressed={active} disabled={!source || failed} onClick={onSelect} className="relative flex aspect-video h-auto w-full items-center justify-center overflow-hidden rounded-none bg-[var(--bg-window)] p-0 whitespace-normal focus-visible:outline-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-100">
+      {source && !failed ? <img key={source} src={source} alt={`网络图片 ${index + 1}`} className="h-full w-full object-contain" onError={() => setFailedSource(source)} draggable={false} /> : <span role={invalid || failed ? "status" : undefined} className="px-2 text-center text-[var(--font-size-10)] text-[var(--text-tertiary)]">{failed ? "图片加载失败" : invalid ? "请输入有效的 HTTPS 图片地址" : "未设置图片"}</span>}
+      {active && <span className="absolute right-1.5 top-1.5 rounded-sm bg-[var(--bg-surface)] p-1 text-[var(--accent)]"><Check size={12} /></span>}
+    </Button>
+    <div className="flex items-center gap-1 p-1.5"><Input aria-label={`看板娘图片地址 ${index + 1}`} aria-invalid={invalid} value={url} onChange={(event) => onUpdate(event.currentTarget.value)} onBlur={onBlur} placeholder="https://example.com/image.png" spellCheck={false} className="min-w-0 flex-1 font-mono text-[var(--font-size-10)]" /><Button type="button" variant="ghost" size="icon-xs" aria-label={`删除第 ${index + 1} 个看板娘图片链接`} title="删除图片" disabled={!canRemove} onClick={onRemove}><Trash2 size={12} /></Button></div>
+  </div>;
 }
 
 function fontPreviewFamily(font: FontFamilyPreference) {

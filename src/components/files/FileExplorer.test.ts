@@ -1,9 +1,27 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildFileTree, FileExplorer } from "@/components/files/FileExplorer";
 
 describe("buildFileTree", () => {
+  it("大量同级文件只挂载一次，不扫描已有兄弟节点", () => {
+    const files = Array.from({ length: 2000 }, (_, index) => ({
+      path: `src/file-${index}.ts`, name: `file-${index}.ts`, kind: "file" as const, size: index,
+    }));
+    const some = vi.spyOn(Array.prototype, "some");
+    let scans: number;
+    let tree: ReturnType<typeof buildFileTree>;
+    try {
+      tree = buildFileTree([...files, { ...files[0], size: 99 }, { path: "src", name: "src", kind: "directory", size: 0 }]);
+      scans = some.mock.calls.length;
+    } finally {
+      some.mockRestore();
+    }
+    expect(tree[0].children).toHaveLength(files.length);
+    expect(tree[0].children.find((node) => node.path === files[0].path)?.size).toBe(99);
+    expect(scans).toBe(0);
+  });
+
   it("为扁平文件列表补齐缺失的父级文件夹", () => {
     const tree = buildFileTree([
       { path: "src/components/App.tsx", name: "App.tsx", kind: "file", size: 12 },

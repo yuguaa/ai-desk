@@ -1,4 +1,5 @@
-import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactNode } from "react";
+import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { WorkspaceInspector } from "@/components/workspace/WorkspaceInspector";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -13,9 +14,13 @@ const handlers = {
   onGitNoticeDismiss: vi.fn(),
 };
 
+function renderPreview(element: ReactNode) {
+  return renderToReadableStream(element).then((stream) => stream.allReady.then(() => new Response(stream).text()));
+}
+
 describe("WorkspaceInspector", () => {
   it("在文件列表右侧显示文件预览分屏", () => {
-    const html = renderToStaticMarkup(<TooltipProvider><WorkspaceInspector tab="files" files={[{ path: "src/App.tsx", name: "App.tsx", kind: "file", size: 12 }]} gitStatus={null} preview={{ kind: "text", path: "src/App.tsx", language: "typescript", content: "export default App", mode: "file" }} selectedPath="src/App.tsx" isLoading={false} error={null} gitOperation={null} gitNotice={null} {...handlers} /></TooltipProvider>);
+    return renderPreview(<TooltipProvider><WorkspaceInspector tab="files" files={[{ path: "src/App.tsx", name: "App.tsx", kind: "file", size: 12 }]} gitStatus={null} preview={{ kind: "text", path: "src/App.tsx", language: "typescript", content: "export default App", mode: "file" }} selectedPath="src/App.tsx" isLoading={false} error={null} gitOperation={null} gitNotice={null} {...handlers} /></TooltipProvider>).then((html) => {
 
     expect(html).toContain('data-slot="resizable-panel-group"');
     expect(html).toContain('placeholder="筛选文件"');
@@ -24,10 +29,11 @@ describe("WorkspaceInspector", () => {
     expect(html).toContain('aria-label="关闭预览"');
     expect(html).toMatch(/aria-label="调整预览宽度"[^>]*aria-orientation="vertical"/);
     expect(html).not.toContain("lucide-move-horizontal");
+    });
   });
 
   it("在 Git 变更列表右侧显示 diff 预览分屏和选中态", () => {
-    const html = renderToStaticMarkup(<TooltipProvider><WorkspaceInspector tab="git" files={[]} gitStatus={{ branch: "main", clean: false, additions: 1, deletions: 1, files: [{ code: " M", path: "src/App.tsx" }] }} preview={{ kind: "text", path: "src/App.tsx", language: "diff", content: "@@ -1 +1 @@\n-old\n+new", mode: "diff" }} selectedPath="src/App.tsx" isLoading={false} error={null} gitOperation={null} gitNotice={null} {...handlers} /></TooltipProvider>);
+    return renderPreview(<TooltipProvider><WorkspaceInspector tab="git" files={[]} gitStatus={{ branch: "main", clean: false, additions: 1, deletions: 1, files: [{ code: " M", path: "src/App.tsx" }] }} preview={{ kind: "text", path: "src/App.tsx", language: "diff", content: "@@ -1 +1 @@\n-old\n+new", mode: "diff" }} selectedPath="src/App.tsx" isLoading={false} error={null} gitOperation={null} gitNotice={null} {...handlers} /></TooltipProvider>).then((html) => {
 
     expect(html).toContain("未暂存的更改");
     expect(html).toContain('data-slot="git-change-count"');
@@ -41,6 +47,7 @@ describe("WorkspaceInspector", () => {
     expect(html).toContain('aria-label="Git 提交信息"');
     expect(html).toMatch(/aria-label="调整预览宽度"[^>]*aria-orientation="vertical"/);
     expect(html).not.toContain("lucide-move-horizontal");
+    });
   });
 
   it("Git 状态干净时不显示变更数量", () => {

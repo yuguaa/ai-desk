@@ -171,18 +171,8 @@ function initialContextUsage(model: PiModel | null): PiContextUsage | null {
 }
 
 function cloneConversationState(current: PiConversationState | undefined): PiConversationState {
-  const base = current ?? EMPTY_PI_CONVERSATION_STATE;
-  return {
-    ...EMPTY_PI_CONVERSATION_STATE,
-    ...base,
-    pendingCommandIds: [...base.pendingCommandIds],
-    availableModels: [...base.availableModels],
-    availableThinkingLevels: [...base.availableThinkingLevels],
-    extensionNotifications: [...base.extensionNotifications],
-    extensionRequestQueue: [...base.extensionRequestQueue],
-    extensionStatuses: { ...base.extensionStatuses },
-    extensionWidgets: { ...base.extensionWidgets },
-  };
+  /* 各更新分支替换数组和 record，未修改的字段共享引用。 */
+  return { ...(current ?? EMPTY_PI_CONVERSATION_STATE) };
 }
 
 function formatRpcError(command: string, error: unknown) {

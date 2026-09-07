@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { isTauriRuntime, listPiProjects, readPiSession, renamePiSession } from "@/lib/pi-bridge";
 import { reorderConversationQueue, type QueuedConversationTurn } from "@/lib/conversation-queue";
 import {
@@ -77,6 +77,7 @@ export function useWorkspace() {
   const [timelines, setTimelines] = useState<TimelineMap>({});
   const [draft, setDraftState] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const [processes, setProcesses] = useState<ProcessMap>({});
   const [activeTurnIndexes, setActiveTurnIndexes] = useState<Record<string, number>>({});
   const [completedConversationIds, setCompletedConversationIds] = useState<string[]>([]);
@@ -115,6 +116,14 @@ export function useWorkspace() {
   const queuedTurns = queuedTurnsByConversation[activeConversationId] ?? [];
   const editingQueuedTurnId = editingQueuedTurn?.conversationId === activeConversationId ? editingQueuedTurn.turnId : null;
   const activeConversationState = piStates[activeConversationId] ?? EMPTY_PI_CONVERSATION_STATE;
+  const extensionStatuses = useMemo(
+    () => Object.entries(activeConversationState.extensionStatuses).map(([statusKey, statusText]) => ({ id: `status-${statusKey}`, statusKey, statusText })),
+    [activeConversationState.extensionStatuses],
+  );
+  const extensionWidgets = useMemo(
+    () => Object.values(activeConversationState.extensionWidgets).map((widget) => ({ id: `widget-${widget.key}`, widgetKey: widget.key, widgetLines: widget.lines, widgetPlacement: widget.placement })),
+    [activeConversationState.extensionWidgets],
+  );
 
   activeConversationRef.current = activeConversationId;
   activeProjectRef.current = activeProjectId;
@@ -285,18 +294,27 @@ export function useWorkspace() {
   };
 
   const loadConversationTimeline = (conversation: ConversationRecord) => {
+    const requestId = ++sessionLoadRef.current;
     if (!conversation.sessionFile) {
+      setLoadingConversationId(null);
       setTimelines((current) => ({ ...current, [conversation.id]: current[conversation.id] ?? [] }));
       return Promise.resolve();
     }
-    const requestId = ++sessionLoadRef.current;
+    setLoadingConversationId(conversation.id);
     return readPiSession(conversation.sessionFile)
       .then((session) => {
-        if (requestId !== sessionLoadRef.current) return;
-        setTimelines((current) => ({ ...current, [conversation.id]: session ? projectPiSession(session.activeEntries) : [] }));
+        if (requestId !== sessionLoadRef.current || activeConversationRef.current !== conversation.id) return;
+        const items = session ? projectPiSession(session.activeEntries) : [];
+        /* 标题与选中状态先更新，历史消息作为低优先级更新一起结束 loading。 */
+        startTransition(() => {
+          setTimelines((current) => ({ ...current, [conversation.id]: items }));
+          setLoadingConversationId(null);
+        });
       })
-      .catch(() => {
-        if (requestId === sessionLoadRef.current) setTimelines((current) => ({ ...current, [conversation.id]: [] }));
+      .catch((reason) => {
+        if (requestId !== sessionLoadRef.current || activeConversationRef.current !== conversation.id) return;
+        appendRuntimeError(conversation.id, reason instanceof Error ? reason.message : String(reason), createPiCommandId("session-load-error"));
+        setLoadingConversationId(null);
       });
   };
 
@@ -1281,13 +1299,14 @@ export function useWorkspace() {
     activeConversationId,
     activeExtensionRequest: activeConversationState.activeExtensionRequest,
     extensionNotifications: activeConversationState.extensionNotifications,
-    extensionStatuses: Object.entries(activeConversationState.extensionStatuses).map(([statusKey, statusText]) => ({ id: `status-${statusKey}`, statusKey, statusText })),
-    extensionWidgets: Object.values(activeConversationState.extensionWidgets).map((widget) => ({ id: `widget-${widget.key}`, widgetKey: widget.key, widgetLines: widget.lines, widgetPlacement: widget.placement })),
+    extensionStatuses,
+    extensionWidgets,
     timeline,
     draft,
     queuedTurns,
     editingQueuedTurnId,
     isLoading,
+    isTimelineLoading: loadingConversationId !== null && loadingConversationId === activeConversationId,
     runtimeIsTauri,
     processes,
     activeTurnIndexes,

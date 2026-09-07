@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Archive, ChevronDown, FolderClosed, FolderOpen, FolderPlus, MessageSquare, MessageSquarePlus, Pencil, Pin, Plus, RefreshCw, Settings, X } from "@/components/ui/icons";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,16 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ projects, conve
   onSelectConversation: (conversation: ConversationRecord) => void;
 }) {
   const [visibleConversationCounts, setVisibleConversationCounts] = useState<Record<string, number>>({});
+  const conversationsByProject = useMemo(() => {
+    const groups = new Map<string, ConversationRecord[]>();
+    for (const conversation of conversations) {
+      const projectId = conversation.projectId;
+      const group = groups.get(projectId);
+      if (group) group.push(conversation);
+      else groups.set(projectId, [conversation]);
+    }
+    return groups;
+  }, [conversations]);
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col bg-[var(--bg-sidebar)]">
@@ -47,7 +57,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ projects, conve
       <ScrollArea className="panel-scroll-area min-h-0 flex-1">
         <div className="flex min-w-0 flex-col gap-0.5 p-[var(--container-padding-tight)]">
           {projects.length ? projects.map((project) => {
-            const projectConversations = conversations.filter((conversation) => conversation.projectId === project.id);
+            const projectConversations = conversationsByProject.get(project.id) ?? [];
             const isActive = activeProjectId === project.id;
             const isCollapsed = collapsedProjectIds.includes(project.id);
             const isBusy = projectConversations.some((conversation) => processes[conversation.id]?.busy);

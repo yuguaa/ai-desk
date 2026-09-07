@@ -17,6 +17,7 @@ const bridge = vi.hoisted(() => ({
     },
   ],
   session: null as { activeEntries: Record<string, unknown>[] } | null,
+  readPiSession: vi.fn(),
   renamePiSession: vi.fn(() => Promise.resolve()),
 }));
 
@@ -54,7 +55,7 @@ const runtime = vi.hoisted(() => {
 vi.mock("@/lib/pi-bridge", () => ({
   isTauriRuntime: () => bridge.runtime,
   listPiProjects: () => Promise.resolve(bridge.projects),
-  readPiSession: () => Promise.resolve(bridge.session),
+  readPiSession: bridge.readPiSession,
   renamePiSession: bridge.renamePiSession,
 }));
 
@@ -80,6 +81,7 @@ beforeEach(() => {
   localStorage.clear();
   bridge.runtime = true;
   bridge.session = null;
+  bridge.readPiSession.mockReset().mockImplementation(() => Promise.resolve(bridge.session));
   bridge.renamePiSession.mockClear();
   bridge.projects = [{
     id: "/workspace/demo",
@@ -104,6 +106,76 @@ afterEach(() => {
 });
 
 describe("useWorkspace", () => {
+  it("草稿、RPC 和后台会话更新保持扩展列表引用，实际修改才更新对应列表", async () => {
+    await mountWorkspace();
+    const emptyStatuses = workspace!.extensionStatuses;
+    const emptyWidgets = workspace!.extensionWidgets;
+    act(() => workspace!.setDraft("draft"));
+    expect(workspace!.extensionStatuses).toBe(emptyStatuses);
+    expect(workspace!.extensionWidgets).toBe(emptyWidgets);
+
+    emitEvent("c1", { type: "extension_ui_request", id: "status", method: "setStatus", statusKey: "sync", statusText: "running" });
+    expect(workspace!.extensionStatuses).not.toBe(emptyStatuses);
+    expect(workspace!.extensionWidgets).toBe(emptyWidgets);
+    const statuses = workspace!.extensionStatuses;
+    emitEvent("c1", { type: "extension_ui_request", id: "widget", method: "setWidget", widgetKey: "review", widgetLines: ["A"], widgetPlacement: "aboveEditor" });
+    expect(workspace!.extensionStatuses).toBe(statuses);
+    expect(workspace!.extensionWidgets).not.toBe(emptyWidgets);
+    const widgets = workspace!.extensionWidgets;
+
+    emitEvent("c1", { type: "response", command: "get_available_models", success: true, data: { models: [{ id: "model-a", provider: "test" }] } });
+    const models = workspace!.conversationState.availableModels;
+    emitEvent("c1", { type: "response", command: "get_session_stats", success: true, data: { contextUsage: { tokens: 10, contextWindow: 100, percent: 10 } } });
+    emitEvent("c2", { type: "extension_ui_request", id: "background-status", method: "setStatus", statusKey: "sync", statusText: "background" });
+    act(() => workspace!.setDraft("updated draft"));
+    expect(workspace!.conversationState.availableModels).toBe(models);
+    expect(workspace!.extensionStatuses).toBe(statuses);
+    expect(workspace!.extensionWidgets).toBe(widgets);
+
+    emitEvent("c1", { type: "extension_ui_request", id: "status-update", method: "setStatus", statusKey: "sync", statusText: "done" });
+    expect(workspace!.extensionStatuses).toEqual([{ id: "status-sync", statusKey: "sync", statusText: "done" }]);
+    expect(statuses[0].statusText).toBe("running");
+    expect(workspace!.extensionWidgets).toBe(widgets);
+    emitEvent("c1", { type: "extension_ui_request", id: "widget-update", method: "setWidget", widgetKey: "review", widgetLines: ["B"] });
+    expect(workspace!.extensionWidgets).toEqual([{ id: "widget-review", widgetKey: "review", widgetLines: ["B"], widgetPlacement: "belowEditor" }]);
+    expect(widgets[0].widgetLines).toEqual(["A"]);
+
+    await act(() => workspace!.selectConversation(workspace!.conversations.find((item) => item.id === "c2")!));
+    expect(workspace!.extensionStatuses[0].statusText).toBe("background");
+    expect(workspace!.extensionWidgets).toEqual([]);
+    await act(() => workspace!.selectConversation(workspace!.conversations.find((item) => item.id === "c1")!));
+    expect(workspace!.extensionStatuses[0].statusText).toBe("done");
+    expect(workspace!.extensionWidgets[0].widgetLines).toEqual(["B"]);
+  });
+
+  it("立即切换会话标识，历史返回前保持 loading，忽略过期请求", async () => {
+    await mountWorkspace();
+    const first = workspace!.conversations.find((item) => item.id === "c1")!;
+    const second = workspace!.conversations.find((item) => item.id === "c2")!;
+    let resolveOld!: (value: null) => void;
+    let resolveLatest!: (value: null) => void;
+    bridge.readPiSession
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveLatest = resolve; }));
+    act(() => workspace!.selectConversation(second));
+    expect(workspace!.activeConversationId).toBe("c2");
+    expect(workspace!.isTimelineLoading).toBe(true);
+    act(() => workspace!.selectConversation(first));
+    await act(() => { resolveOld(null); });
+    expect(workspace!.activeConversationId).toBe("c1");
+    expect(workspace!.isTimelineLoading).toBe(true);
+    await act(() => { resolveLatest(null); });
+    expect(workspace!.isTimelineLoading).toBe(false);
+  });
+
+  it("历史读取失败结束 loading，展示错误而不是空会话", async () => {
+    await mountWorkspace();
+    bridge.readPiSession.mockRejectedValueOnce(new Error("读取失败"));
+    await act(() => workspace!.selectConversation(workspace!.conversations.find((item) => item.id === "c2")!));
+    expect(workspace!.isTimelineLoading).toBe(false);
+    expect(JSON.stringify(workspace!.timeline)).toContain("读取失败");
+  });
+
   it("仅从 AI Desk 展示中移除项目，并在刷新后保持隐藏", async () => {
     bridge.projects = [
       ...bridge.projects,

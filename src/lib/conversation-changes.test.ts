@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   getConversationChanges,
   getConversationTurnFingerprint,
@@ -18,6 +18,9 @@ const baseStatus: GitStatus = {
 };
 
 describe("getConversationChanges", () => {
+  it("保留文件名首尾空格，防止统计和撤销指向不同文件", () => {
+    expect(getConversationChanges({ ...baseStatus, clean: false, additions: 1, files: [{ path: " file.txt ", code: "A" }] })?.files[0].path).toBe(" file.txt ");
+  });
   it("忽略 clean snapshot", () => {
     expect(getConversationChanges(baseStatus)).toBeNull();
   });
@@ -134,5 +137,12 @@ describe("conversation turn changes storage", () => {
 
     expect(saveConversationTurnChanges(changes).map(({ tree }) => tree)).toEqual(["tree-0"]);
     expect(Object.keys(loadConversationTurnChanges())).toHaveLength(100);
+
+    const running = { ...changes[getConversationTurnKey("/demo", "session-1", 0)], phase: "running" as const };
+    expect(saveConversationTurnChanges({ ...changes, running })).toEqual([]);
+
+    const storageWrite = vi.spyOn(Storage.prototype, "setItem").mockImplementationOnce(() => { throw new Error("quota"); });
+    expect(saveConversationTurnChanges(changes)).toEqual([]);
+    storageWrite.mockRestore();
   });
 });

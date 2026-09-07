@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  areConversationStatusesEqual,
   getConversationChanges,
   getConversationTurnFingerprint,
   getConversationTurnKey,
   loadConversationTurnChanges,
+  retainConversationTurnChanges,
   saveConversationTurnChanges,
   type ConversationTurnChanges,
 } from "@/lib/conversation-changes";
@@ -29,7 +31,9 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
   const [changes, setChanges] = useState(loadConversationTurnChanges);
   const changesRef = useRef(changes);
   const requestVersionsRef = useRef(new Map<string, number>());
-  const settlingRef = useRef(new Set<string>());
+  const settlingRef = useRef(new Map<string, Promise<void>>());
+  const refreshingRef = useRef(new Set<string>());
+  const revertingRef = useRef(new Set<string>());
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -37,6 +41,7 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
   }, [changes]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
     };
@@ -74,7 +79,13 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
     return () => window.clearInterval(interval);
   }, [activeRunningTurnSignature]);
 
-  const startTurn = ({ cwd: turnCwd, conversationId, turnIndex, prompt }: TurnStart) => captureGitSnapshot(turnCwd)
+  const startTurn = ({ cwd: turnCwd, conversationId, turnIndex, prompt }: TurnStart) => Promise.all(
+    Object.entries(changesRef.current)
+      .filter(([, entry]) => entry.cwd === turnCwd && entry.conversationId === conversationId && entry.phase === "running" && entry.turnIndex !== turnIndex)
+      .map(([key, entry]) => settleEntry(key, entry)),
+  )
+    /* 队列可在 React effect 前启动下一回合，先冻结上一回合再允许下一次执行。 */
+    .then(() => captureGitSnapshot(turnCwd))
     .then((baselineTree) => {
       if (!baselineTree) throw new Error("无法建立本回合 Git 基线");
       const key = getConversationTurnKey(turnCwd, conversationId, turnIndex);
@@ -91,41 +102,61 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
     });
 
   const refreshTurn = (turnIndex: number) => {
-    const entry = changesByTurn[turnIndex];
+    const key = getConversationTurnKey(cwd, sessionId, turnIndex);
+    const entry = changesRef.current[key];
     if (!entry) return;
-    refreshCompletedTurn(getConversationTurnKey(entry.cwd, entry.conversationId, entry.turnIndex), entry);
+    refreshCompletedTurn(key, entry);
   };
 
   const revertTurn = (turnIndex: number, path?: string) => {
-    const entry = changesByTurn[turnIndex];
-    if (!entry || !entry.endTree) return Promise.resolve(false);
+    const key = getConversationTurnKey(cwd, sessionId, turnIndex);
+    const entry = changesRef.current[key];
+    if (!entry || !entry.endTree || revertingRef.current.has(entry.cwd)) return Promise.resolve(false);
+    if (Object.values(changesRef.current).some((turn) => turn.cwd === entry.cwd && turn.phase === "running")) {
+      commitEntry(key, { ...entry, error: "项目仍有任务执行中，请结束后再撤销" });
+      return Promise.resolve(false);
+    }
+    if (path && !entry.status?.files.some((file) => file.path === path)) return Promise.resolve(false);
+    revertingRef.current.add(entry.cwd);
+    requestVersionsRef.current.set(key, (requestVersionsRef.current.get(key) ?? 0) + 1);
     const endTree = entry.endTree;
-    const key = getConversationTurnKey(entry.cwd, entry.conversationId, entry.turnIndex);
     const remainingPaths = (entry.status?.files ?? [])
       .map((file) => file.path)
-      .filter((filePath) => filePath !== path);
-    return revertGitSnapshot(entry.cwd, entry.baselineTree, endTree, path ?? null)
-      .then(() => getGitSnapshotStatusScoped(entry.cwd, entry.baselineTree, endTree, remainingPaths))
+      .filter((filePath) => path !== undefined && filePath !== path);
+    /* 先计算冻结快照的剩余统计，避免撤销成功后统计失败而保留已撤销文件。 */
+    return getGitSnapshotStatusScoped(entry.cwd, entry.baselineTree, endTree, remainingPaths)
+      .then((status) => revertGitSnapshot(entry.cwd, entry.baselineTree, endTree, path ?? null).then(() => status))
       .then((status) => {
-        commitEntry(key, { ...entry, status: getConversationChanges(status) });
+        commitEntry(key, { ...entry, error: undefined, status: getConversationChanges(status) });
         return true;
       })
-      .catch(() => false);
+      .catch((reason: unknown) => {
+        commitEntry(key, { ...entry, error: String(reason) });
+        return false;
+      })
+      .finally(() => revertingRef.current.delete(entry.cwd));
   };
 
   function refreshEntry(key: string, entry: ConversationTurnChanges) {
+    /* 慢请求不叠加，收尾期间停止轮询，避免覆盖结束快照的版本。 */
+    if (refreshingRef.current.has(key) || settlingRef.current.has(key)) return;
+    refreshingRef.current.add(key);
     const requestVersion = (requestVersionsRef.current.get(key) ?? 0) + 1;
     requestVersionsRef.current.set(key, requestVersion);
     getGitSnapshotStatus(entry.cwd, entry.baselineTree)
       .then((status) => {
         if (!mountedRef.current || requestVersionsRef.current.get(key) !== requestVersion) return;
-        commitEntry(key, { ...entry, status: getConversationChanges(status) });
+        const nextStatus = getConversationChanges(status);
+        if (areConversationStatusesEqual(changesRef.current[key]?.status ?? null, nextStatus)) return;
+        commitEntry(key, { ...entry, error: undefined, status: nextStatus });
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => refreshingRef.current.delete(key));
   }
 
   function refreshCompletedTurn(key: string, entry: ConversationTurnChanges) {
-    if (!entry.endTree) return;
+    if (!entry.endTree || refreshingRef.current.has(key) || revertingRef.current.has(entry.cwd)) return;
+    refreshingRef.current.add(key);
     const requestVersion = (requestVersionsRef.current.get(key) ?? 0) + 1;
     requestVersionsRef.current.set(key, requestVersion);
     /* 刷新同样限定在本回合剩余变更范围内，避免把其他回合的变更混进来 */
@@ -133,18 +164,21 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
     getGitSnapshotStatusScoped(entry.cwd, entry.baselineTree, entry.endTree, paths)
       .then((status) => {
         if (!mountedRef.current || requestVersionsRef.current.get(key) !== requestVersion) return;
-        commitEntry(key, { ...entry, status: getConversationChanges(status) });
+        commitEntry(key, { ...entry, error: undefined, status: getConversationChanges(status) });
       })
-      .catch(() => undefined);
+      .catch((reason: unknown) => {
+        if (requestVersionsRef.current.get(key) === requestVersion) commitEntry(key, { ...entry, error: String(reason) });
+      })
+      .finally(() => refreshingRef.current.delete(key));
   }
 
   function settleEntry(key: string, entry: ConversationTurnChanges) {
-    if (settlingRef.current.has(key)) return;
-    settlingRef.current.add(key);
+    const pending = settlingRef.current.get(key);
+    if (pending) return pending;
     const requestVersion = (requestVersionsRef.current.get(key) ?? 0) + 1;
     requestVersionsRef.current.set(key, requestVersion);
 
-    captureGitSnapshot(entry.cwd)
+    const request = captureGitSnapshot(entry.cwd)
       .then((endTree) => {
         if (!endTree) throw new Error("无法建立本回合结束快照");
         return getGitSnapshotStatusBetween(entry.cwd, entry.baselineTree, endTree)
@@ -157,22 +191,27 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
           phase: "completed",
           completedAt: Date.now(),
           endTree,
+          error: undefined,
           status: getConversationChanges(status),
         });
       })
-      .catch(() => {
+      .catch((reason: unknown) => {
         if (!mountedRef.current || requestVersionsRef.current.get(key) !== requestVersion) return;
-        commitEntry(key, { ...entry, phase: "completed", completedAt: Date.now() });
+        commitEntry(key, { ...entry, phase: "completed", completedAt: Date.now(), error: String(reason) });
       })
       .finally(() => settlingRef.current.delete(key));
+    settlingRef.current.set(key, request);
+    return request;
   }
 
   function commitEntry(key: string, entry: ConversationTurnChanges) {
-    const next = { ...changesRef.current, [key]: entry };
+    if (!mountedRef.current) return;
+    const updated = { ...changesRef.current, [key]: entry };
+    const next = entry.phase === "completed" ? retainConversationTurnChanges(updated) : updated;
     changesRef.current = next;
     setChanges(next);
     if (entry.phase === "completed") {
-      saveConversationTurnChanges(next).forEach(({ cwd: snapshotCwd, tree }) => {
+      saveConversationTurnChanges(updated).forEach(({ cwd: snapshotCwd, tree }) => {
         releaseGitSnapshot(snapshotCwd, tree).catch(() => undefined);
       });
     }

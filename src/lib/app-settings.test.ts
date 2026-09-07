@@ -62,15 +62,50 @@ describe("app settings", () => {
     expect(normalizeAppSettings({ mascotImageUrls: ["first", 2, " second "] as unknown as string[], mascotImageUrlIndex: 7 })).toMatchObject({ mascotImageUrls: ["first", "second"], mascotImageUrlIndex: 1 });
   });
 
-  it("clamps loaded container padding to the supported range", () => {
-    storage.set(SETTINGS_STORAGE_KEY, JSON.stringify({ containerPadding: 4 }));
-    expect(loadAppSettings().containerPadding).toBe(8);
+  it.each([
+    { cornerRadius: 48.125, fontSize: 32.25, containerPadding: 64.5, backgroundOpacity: 0.125 },
+    { cornerRadius: 0, fontSize: 0.5, containerPadding: 0, backgroundOpacity: 0 },
+    { cornerRadius: 2.25, fontSize: 10.5, containerPadding: 4.125, backgroundOpacity: 1 },
+  ])("preserves unrestricted decimals through storage and appearance: %j", (values) => {
+    const normalized = normalizeAppSettings(values);
+    expect(normalized).toMatchObject(values);
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
+    const loaded = loadAppSettings();
+    expect(loaded).toMatchObject(values);
+    for (const settings of [loaded, { ...DEFAULT_APP_SETTINGS, ...values }]) {
+      applyAppearance(settings);
+      const style = document.documentElement.style;
+      expect(style.getPropertyValue("--radius-md")).toBe(`${values.cornerRadius}px`);
+      expect(style.getPropertyValue("--radius-xs")).toBe(`${Math.max(0, values.cornerRadius - 4)}px`);
+      expect(style.getPropertyValue("--radius-composer")).toBe(`${values.cornerRadius + 5}px`);
+      expect(style.getPropertyValue("--font-size-offset")).toBe(`${values.fontSize - DEFAULT_APP_SETTINGS.fontSize}px`);
+      expect(style.getPropertyValue("--container-padding")).toBe(`${values.containerPadding}px`);
+      expect(style.getPropertyValue("--background-opacity")).toBe(String(values.backgroundOpacity));
+      expect(style.getPropertyValue("--surface-opacity")).toBe(String(values.backgroundOpacity));
+    }
+  });
 
-    storage.set(SETTINGS_STORAGE_KEY, JSON.stringify({ containerPadding: 24 }));
-    expect(loadAppSettings().containerPadding).toBe(20);
+  it.each([NaN, Infinity, -Infinity, undefined])("rejects non-finite appearance values: %s", (value) => {
+    expect(normalizeAppSettings({ cornerRadius: value, fontSize: value, containerPadding: value, backgroundOpacity: value })).toMatchObject({
+      cornerRadius: DEFAULT_APP_SETTINGS.cornerRadius,
+      fontSize: DEFAULT_APP_SETTINGS.fontSize,
+      containerPadding: DEFAULT_APP_SETTINGS.containerPadding,
+      backgroundOpacity: DEFAULT_APP_SETTINGS.backgroundOpacity,
+    });
+  });
 
-    storage.set(SETTINGS_STORAGE_KEY, JSON.stringify({ containerPadding: 12.5 }));
-    expect(loadAppSettings().containerPadding).toBe(13);
+  it("retains only nonnegative dimensions, positive fonts and physical opacity bounds", () => {
+    const values = { cornerRadius: -2, fontSize: -3, containerPadding: -4, backgroundOpacity: -0.5 };
+    expect(normalizeAppSettings(values)).toMatchObject({ cornerRadius: 0, fontSize: DEFAULT_APP_SETTINGS.fontSize, containerPadding: 0, backgroundOpacity: 0 });
+    expect(normalizeAppSettings({ fontSize: 0 }).fontSize).toBe(DEFAULT_APP_SETTINGS.fontSize);
+    expect(normalizeAppSettings({ backgroundOpacity: 2 }).backgroundOpacity).toBe(1);
+    applyAppearance({ ...DEFAULT_APP_SETTINGS, ...values });
+    expect(document.documentElement.style.getPropertyValue("--radius-md")).toBe("0px");
+    expect(document.documentElement.style.getPropertyValue("--container-padding")).toBe("0px");
+    expect(document.documentElement.style.getPropertyValue("--font-size-offset")).toBe("0px");
+    expect(document.documentElement.style.getPropertyValue("--background-opacity")).toBe("0");
+    applyAppearance({ ...DEFAULT_APP_SETTINGS, backgroundOpacity: 2 });
+    expect(document.documentElement.style.getPropertyValue("--background-opacity")).toBe("1");
   });
 
   it("resolves and applies the selected theme", () => {

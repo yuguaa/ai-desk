@@ -2,7 +2,7 @@
 
 import Ansi from "ansi-to-react";
 import type { ComponentProps, HTMLAttributes, UIEvent as ReactUIEvent } from "react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Check, Copy, Terminal as TerminalIcon, Trash2 } from "@/components/ui/icons";
 import { useFollowLatestOutput } from "@/hooks/use-follow-latest-output";
@@ -13,7 +13,8 @@ import { cn } from "@/lib/utils";
  * Vite 8 浏览器运行时会保留 module.exports，这里统一为 React 组件。
  */
 const ansiModule = Ansi as typeof Ansi & { default?: typeof Ansi };
-const AnsiComponent = ansiModule.default ?? ansiModule;
+/* 光标和运行状态变化不重复解析相同输出。 */
+const AnsiComponent = memo(ansiModule.default ?? ansiModule);
 
 interface TerminalContextType {
   output: string;

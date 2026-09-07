@@ -10,6 +10,17 @@ const handlers = {
 };
 
 describe("ConversationChangesBar", () => {
+  it("结束快照失败不能显示未修改文件或撤销按钮", () => {
+    const html = renderToStaticMarkup(<ConversationChangesBar change={{
+      cwd: "/demo", conversationId: "session-1", turnIndex: 0,
+      promptFingerprint: "test", baselineTree: "baseline", endTree: null,
+      phase: "completed", status: null, error: "结束快照失败",
+    }} {...handlers} />);
+    expect(html).toContain("结束快照失败");
+    expect(html).not.toContain("本次执行未修改文件");
+    expect(html).not.toContain("撤销全部");
+  });
+
   it("结束后未修改文件时展示完成横幅", () => {
     const html = renderToStaticMarkup(<ConversationChangesBar
       change={{
@@ -18,7 +29,7 @@ describe("ConversationChangesBar", () => {
         turnIndex: 0,
         promptFingerprint: "4:test",
         baselineTree: "tree-0",
-        endTree: null,
+        endTree: "tree-0",
         phase: "completed",
         status: null,
       }}

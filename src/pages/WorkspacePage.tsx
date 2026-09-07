@@ -34,10 +34,11 @@ export default function WorkspacePage({ onOpenSettings }: { onOpenSettings: () =
     inspectorRef.current.openDiff(path, change.baselineTree, change.endTree ?? undefined);
   }, []);
 
-  const sendMessage = useCallback(() => workspaceRef.current.sendMessage((turn) => conversationChangesRef.current.startTurn({
-    ...turn,
-    cwd: workspaceRef.current.activeProject.path,
-  })), []);
+  const sendMessage = useCallback(() => {
+    /* 排队任务绑定提交时的项目，切换项目不能改变其快照目录。 */
+    const cwd = workspaceRef.current.activeProject.path;
+    return workspaceRef.current.sendMessage((turn) => conversationChangesRef.current.startTurn({ ...turn, cwd }));
+  }, []);
 
   const onRefreshProjects = useCallback(() => workspaceRef.current.refreshProjects(), []);
   const onNewProject = useCallback(() => workspaceRef.current.createProject(), []);
@@ -90,6 +91,7 @@ export default function WorkspacePage({ onOpenSettings }: { onOpenSettings: () =
           <ChatPanel
             conversationId={workspace.activeConversationId}
             timeline={workspace.timeline}
+            isTimelineLoading={workspace.isTimelineLoading}
             draft={workspace.draft}
             isBusy={isBusy}
             queuedTurns={workspace.queuedTurns}

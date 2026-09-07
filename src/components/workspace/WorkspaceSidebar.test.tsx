@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceSidebar } from "@/components/workspace/WorkspaceSidebar";
@@ -24,6 +24,74 @@ afterEach(() => {
 });
 
 describe("WorkspaceSidebar", () => {
+  it("分组只读取 C 次 projectId，进程变化和展开分页不重新分组", () => {
+    const readProjectId = vi.fn();
+    const conversations = Array.from({ length: 6 }, (_, index) => [
+      trackedConversation(`alpha-${index}`, "alpha", readProjectId),
+      trackedConversation(`beta-${index}`, "beta", readProjectId),
+    ]).flat();
+    Object.freeze(conversations);
+    const render = mountGroupingSidebar({
+      projects: ["alpha", "beta", "empty"].map((id) => ({ id, name: id, path: id })),
+      conversations,
+    });
+
+    expect(readProjectId).toHaveBeenCalledTimes(conversations.length);
+    expect(projectTitles("alpha")).toEqual(["alpha-0", "alpha-1", "alpha-2", "alpha-3", "alpha-4"]);
+    expect(projectTitles("beta")).toEqual(["beta-0", "beta-1", "beta-2", "beta-3", "beta-4"]);
+    expect(projectTitles("empty")).toEqual([]);
+    readProjectId.mockClear();
+
+    render({ processes: { "alpha-5": { busy: true }, "beta-0": { busy: true } } });
+    expect(readProjectId).not.toHaveBeenCalled();
+    expect(container!.querySelector<HTMLButtonElement>('button[aria-label="alpha 运行中，无法移除"]')?.disabled).toBe(true);
+    expect(container!.querySelector('button[title="beta-0"] [data-slot="conversation-status"]')).not.toBeNull();
+    act(() => container!.querySelector<HTMLButtonElement>('button[aria-label="展开 alpha 的更多对话"]')!.click());
+    expect(readProjectId).not.toHaveBeenCalled();
+    expect(projectTitles("alpha")).toEqual(["alpha-0", "alpha-1", "alpha-2", "alpha-3", "alpha-4", "alpha-5"]);
+    expect(projectTitles("beta")).toHaveLength(5);
+
+    render({ processes: {} });
+    expect(readProjectId).not.toHaveBeenCalled();
+    expect(container!.querySelector<HTMLButtonElement>('button[aria-label="从 AI Desk 移除 alpha"]')?.disabled).toBe(false);
+    expect(container!.querySelector('button[title="beta-0"] [data-slot="conversation-status"]')).toBeNull();
+  });
+
+  it("会话数组引用变化重新分组，移动会话后保留输入顺序且不修改旧数组", () => {
+    const readProjectId = vi.fn();
+    const conversations = [
+      trackedConversation("first", "alpha", readProjectId),
+      trackedConversation("second", "beta", readProjectId),
+      trackedConversation("third", "alpha", readProjectId),
+    ];
+    Object.freeze(conversations);
+    const render = mountGroupingSidebar({
+      projects: ["alpha", "beta"].map((id) => ({ id, name: id, path: id })),
+      conversations,
+    });
+    expect(readProjectId).toHaveBeenCalledTimes(3);
+    expect(projectTitles("alpha")).toEqual(["first", "third"]);
+    readProjectId.mockClear();
+
+    render({ conversations: [...conversations] });
+    expect(readProjectId).toHaveBeenCalledTimes(3);
+    expect(projectTitles("alpha")).toEqual(["first", "third"]);
+    readProjectId.mockClear();
+
+    const moved = [conversations[2], trackedConversation("first", "beta", readProjectId), conversations[1]];
+    Object.freeze(moved);
+    render({ conversations: moved });
+    expect(readProjectId).toHaveBeenCalledTimes(3);
+    expect(projectTitles("alpha")).toEqual(["third"]);
+    expect(projectTitles("beta")).toEqual(["first", "second"]);
+    expect(conversations.map((item) => item.id)).toEqual(["first", "second", "third"]);
+    expect(conversations[0].projectId).toBe("alpha");
+
+    render({ conversations: [] });
+    expect(projectTitles("alpha")).toEqual([]);
+    expect(projectTitles("beta")).toEqual([]);
+  });
+
   it("会话区快捷操作提示显示在按钮上方", async () => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -476,6 +544,41 @@ describe("WorkspaceSidebar", () => {
     expect(onPinConversation).toHaveBeenLastCalledWith("session-1", false);
   });
 });
+
+function trackedConversation(id: string, projectId: string, onRead: () => void) {
+  return Object.freeze({
+    id,
+    get projectId() { onRead(); return projectId; },
+    title: id,
+    preview: "",
+    time: "刚刚",
+  });
+}
+
+function projectTitles(projectId: string) {
+  const project = container!.querySelector(`button[aria-label="收起项目 ${projectId}"]`)!.parentElement!.parentElement!;
+  return Array.from(project.querySelectorAll('[data-slot="conversation-title"]'), (item) => item.textContent);
+}
+
+function mountGroupingSidebar(input: Pick<ComponentProps<typeof WorkspaceSidebar>, "projects" | "conversations">) {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+  const noop = () => undefined;
+  const props: ComponentProps<typeof WorkspaceSidebar> = {
+    ...input,
+    pinnedConversationIds: [], collapsedProjectIds: [], completedConversationIds: [],
+    activeProjectId: "", activeConversationId: "", processes: {}, isLoading: false,
+    onOpenSettings: noop, onRefresh: noop, onNewProject: noop, onRemoveProject: noop,
+    onNewConversation: noop, onArchiveConversation: noop, onRenameConversation: noop,
+    onPinConversation: noop, onSetProjectCollapsed: noop, onSelectProject: noop, onSelectConversation: noop,
+  };
+  const render = (updates: Partial<ComponentProps<typeof WorkspaceSidebar>> = {}) => act(() => {
+    root!.render(<TooltipProvider><WorkspaceSidebar {...props} {...updates} /></TooltipProvider>);
+  });
+  render();
+  return render;
+}
 
 function findMenuItem(label: string) {
   return Array.from(document.querySelectorAll<HTMLElement>('[data-slot="context-menu-item"]')).find((item) => item.textContent === label);

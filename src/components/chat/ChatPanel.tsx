@@ -13,7 +13,7 @@ import type { PiContextUsage, PiExtensionResponse, PiModel } from "@/lib/pi-runt
 const PromptInput = lazy(() => import("@/components/ai-elements/prompt-input").then((module) => ({ default: module.PromptInput })));
 const TimelineItemView = lazy(() => import("@/components/chat/TimelineItemView").then((module) => ({ default: module.TimelineItemView })));
 
-export function ChatPanel({ conversationId, timeline, draft, isBusy, queuedTurns, editingQueuedTurnId, turnChanges, models, selectedModel, thinkingLevel, thinkingLevels, contextUsage, runtimeAvailable, activeExtensionRequest, extensionNotifications, extensionStatuses, extensionWidgets, onModelChange, onThinkingChange, onReorderQueuedTurn, onRemoveQueuedTurn, onSteerQueuedTurn, onEditQueuedTurn, onDraftChange, onSend, onAbort, onViewChanges, onRefreshChanges, onPreviewChange, onRevertChange, onRespondToExtensionUi }: { conversationId: string; timeline: TimelineItem[]; draft: string; isBusy: boolean; queuedTurns?: QueuedConversationTurn[]; editingQueuedTurnId?: string | null; turnChanges: Record<number, ConversationTurnChanges>; models: PiModel[]; selectedModel: PiModel | null; thinkingLevel: string | null; thinkingLevels: string[]; contextUsage: PiContextUsage | null; runtimeAvailable: boolean; activeExtensionRequest: unknown; extensionNotifications: unknown[]; extensionStatuses: unknown[]; extensionWidgets: unknown[]; onModelChange: (modelKey: string) => void; onThinkingChange: (level: string) => void; onReorderQueuedTurn?: (sourceId: string, targetId: string) => void; onRemoveQueuedTurn?: (turnId: string) => void; onSteerQueuedTurn?: (turnId: string) => void; onEditQueuedTurn?: (turnId: string) => void; onDraftChange: (value: string) => void; onSend: () => void; onAbort: () => void; onViewChanges: () => void; onRefreshChanges: (turnIndex: number) => void; onPreviewChange: (turnIndex: number, path: string) => void; onRevertChange: (turnIndex: number, path?: string) => Promise<boolean> | void; onRespondToExtensionUi: (response: PiExtensionResponse) => void }) {
+export function ChatPanel({ conversationId, timeline, draft, isBusy, isTimelineLoading = false, queuedTurns, editingQueuedTurnId, turnChanges, models, selectedModel, thinkingLevel, thinkingLevels, contextUsage, runtimeAvailable, activeExtensionRequest, extensionNotifications, extensionStatuses, extensionWidgets, onModelChange, onThinkingChange, onReorderQueuedTurn, onRemoveQueuedTurn, onSteerQueuedTurn, onEditQueuedTurn, onDraftChange, onSend, onAbort, onViewChanges, onRefreshChanges, onPreviewChange, onRevertChange, onRespondToExtensionUi }: { conversationId: string; timeline: TimelineItem[]; draft: string; isBusy: boolean; isTimelineLoading?: boolean; queuedTurns?: QueuedConversationTurn[]; editingQueuedTurnId?: string | null; turnChanges: Record<number, ConversationTurnChanges>; models: PiModel[]; selectedModel: PiModel | null; thinkingLevel: string | null; thinkingLevels: string[]; contextUsage: PiContextUsage | null; runtimeAvailable: boolean; activeExtensionRequest: unknown; extensionNotifications: unknown[]; extensionStatuses: unknown[]; extensionWidgets: unknown[]; onModelChange: (modelKey: string) => void; onThinkingChange: (level: string) => void; onReorderQueuedTurn?: (sourceId: string, targetId: string) => void; onRemoveQueuedTurn?: (turnId: string) => void; onSteerQueuedTurn?: (turnId: string) => void; onEditQueuedTurn?: (turnId: string) => void; onDraftChange: (value: string) => void; onSend: () => void; onAbort: () => void; onViewChanges: () => void; onRefreshChanges: (turnIndex: number) => void; onPreviewChange: (turnIndex: number, path: string) => void; onRevertChange: (turnIndex: number, path?: string) => Promise<boolean> | void; onRespondToExtensionUi: (response: PiExtensionResponse) => void }) {
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
   let turnIndex = -1;
   let promptFingerprint = "";
@@ -22,19 +22,19 @@ export function ChatPanel({ conversationId, timeline, draft, isBusy, queuedTurns
   let turnTime = "";
   let turnStreaming = false;
   const sendMessage = () => {
-    if (!draft.trim()) return;
+    if (isTimelineLoading || !draft.trim()) return;
     onSend();
     setScrollToBottomTrigger((current) => current + 1);
   };
 
   // 当前轮（最后一条 user 消息之后）是否已有任何 AI 产出，用于区分“链接中/生成中”
-  const { lastUserIndex, lastTurnIndex } = getTimelineMeta(timeline);
-  const currentTurnHasOutput = timeline.length > lastUserIndex + 1;
+  const { lastUserIndex, lastTurnIndex } = isTimelineLoading ? { lastUserIndex: -1, lastTurnIndex: -1 } : getTimelineMeta(timeline);
+  const currentTurnHasOutput = !isTimelineLoading && timeline.length > lastUserIndex + 1;
 
   return <div className="flex min-h-0 flex-1 flex-col bg-[var(--bg-workspace)]">
     <ExtensionUiPanel request={activeExtensionRequest} notifications={extensionNotifications} statuses={extensionStatuses} widgets={extensionWidgets} onRespond={onRespondToExtensionUi} />
     <div className="relative isolate min-h-0 flex-1 overflow-hidden">
-      <Conversation key={conversationId} className="relative z-10 h-full" scrollToBottomTrigger={scrollToBottomTrigger}>
+      {isTimelineLoading ? <div role="status" aria-label="加载会话中" className="flex h-full items-center justify-center gap-2 text-[var(--font-size-11-5)] text-[var(--text-tertiary)]"><Spinner role="presentation" aria-hidden="true" /><span>加载会话中…</span></div> : <Conversation key={conversationId} className="relative z-10 h-full" scrollToBottomTrigger={scrollToBottomTrigger}>
         <div className="w-full px-[var(--container-padding)] pb-[var(--container-padding-loose)] pt-[var(--container-padding)]">
           <div data-slot="conversation-content" className="conversation-column flex flex-col">
             {timeline.map((item, itemIndex) => {
@@ -60,7 +60,7 @@ export function ChatPanel({ conversationId, timeline, draft, isBusy, queuedTurns
             {!timeline.length && <div className="grid min-h-[46vh] place-items-center"><div className="max-w-[280px] text-center"><MessageSquarePlus className="mx-auto size-5 text-[var(--text-tertiary)]" /><h2 className="mt-2 text-[var(--font-size-12-5)] font-medium text-[var(--text-secondary)]">开始一个新对话</h2><p className="mt-1 text-[var(--font-size-11-5)] leading-snug text-[var(--text-tertiary)]">选择项目，然后输入要处理的本地任务。</p></div></div>}
           </div>
         </div>
-      </Conversation>
+      </Conversation>}
     </div>
     <div data-slot="conversation-composer" className="shrink-0 px-[var(--container-padding)] pb-[var(--container-padding)] pt-[var(--container-padding-tight)]"><div className="conversation-column"><Suspense fallback={<div className="h-[116px] rounded-[var(--radius-composer)] bg-[var(--composer-bg)]" aria-busy="true" />}><PromptInput value={draft} onChange={onDraftChange} onSubmit={sendMessage} onAbort={onAbort} isRunning={isBusy} queuedTurns={queuedTurns} editingQueuedTurnId={editingQueuedTurnId} models={models} selectedModel={selectedModel} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} contextUsage={contextUsage} runtimeAvailable={runtimeAvailable} onModelChange={onModelChange} onThinkingChange={onThinkingChange} onReorderQueuedTurn={onReorderQueuedTurn} onRemoveQueuedTurn={onRemoveQueuedTurn} onSteerQueuedTurn={onSteerQueuedTurn} onEditQueuedTurn={onEditQueuedTurn} /></Suspense></div></div>
   </div>;
