@@ -7,11 +7,35 @@ import {
   applyPiRpcResponse,
   clearActiveExtensionRequest,
   EMPTY_PI_CONVERSATION_STATE,
+  normalizePiModel,
   settlePendingPiCommand,
   trackPendingPiCommand,
 } from "@/lib/pi-runtime-state";
 
 describe("Pi runtime state", () => {
+  it.each([
+    { input: ["text", "image"], expected: ["text", "image"] },
+    { input: ["audio", null, 1, "image", "text", "IMAGE"], expected: ["image", "text"] },
+    { input: ["text"], expected: ["text"] },
+    { input: [], expected: [] },
+    { input: ["video"], expected: [] },
+    { input: "image", expected: undefined },
+    { input: null, expected: undefined },
+    { input: undefined, expected: undefined },
+  ])("仅保留协议声明的合法模型输入 $input", ({ input, expected }) => {
+    expect(normalizePiModel({ id: "vision-image-model", provider: "test", input })?.input).toEqual(expected);
+  });
+
+  it("当前模型、切换模型和可用模型列表均保留图片能力", () => {
+    const model = { id: "custom", provider: "test", input: ["text", "image"] };
+    for (const command of ["get_state", "set_model"]) {
+      const state = applyPiRpcResponse(undefined, { command, success: true, data: { model } });
+      expect(state.model?.input).toEqual(["text", "image"]);
+    }
+    expect(applyPiRpcResponse(undefined, { command: "set_model", success: true, data: model }).model?.input).toEqual(["text", "image"]);
+    expect(applyPiRpcResponse(undefined, { command: "get_available_models", success: true, data: { models: [model] } }).availableModels[0].input).toEqual(["text", "image"]);
+  });
+
   const extension = (method: string, data: Record<string, unknown> = {}) => (state: PiConversationState) =>
     applyPiExtensionUiRequest(state, { type: "extension_ui_request", id: "new-request", method, ...data });
   const rpc = (command: string, data: Record<string, unknown> = {}) => (state: PiConversationState) =>

@@ -24,6 +24,7 @@ export type PiModel = {
   name?: string;
   provider: string;
   reasoning?: boolean;
+  input?: ("text" | "image")[];
   contextWindow?: number;
 };
 

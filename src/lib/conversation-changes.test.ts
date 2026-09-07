@@ -8,6 +8,7 @@ import {
   saveConversationTurnChanges,
 } from "@/lib/conversation-changes";
 import type { GitStatus } from "@/types/workspace";
+import type { ImageAttachment } from "@/lib/image-attachments";
 
 const baseStatus: GitStatus = {
   branch: "main",
@@ -68,6 +69,23 @@ describe("getConversationChanges", () => {
 });
 
 describe("conversation turn changes storage", () => {
+  const image: ImageAttachment = { id: "upload", name: "screen.png", type: "image", mimeType: "image/png", data: "aGVsbG8=" };
+
+  it("相同图片的历史标识和文件名变化不影响指纹", () => {
+    expect(getConversationTurnFingerprint("检查", [image])).toBe(getConversationTurnFingerprint("检查", [{ ...image, id: "history-image-0", name: "image-1.png" }]));
+    expect(getConversationTurnFingerprint("检查", [])).toBe(getConversationTurnFingerprint("检查"));
+  });
+
+  it.each(["", "检查"])("相同正文 %j 的图片数据、类型、数量和顺序差异均改变指纹", (prompt) => {
+    const other = { ...image, data: "dGVzdA==" };
+    const fingerprint = getConversationTurnFingerprint(prompt, [image]);
+    expect(fingerprint).not.toBe(getConversationTurnFingerprint(prompt));
+    expect(fingerprint).not.toBe(getConversationTurnFingerprint(prompt, [other]));
+    expect(fingerprint).not.toBe(getConversationTurnFingerprint(prompt, [{ ...image, mimeType: "image/jpeg" }]));
+    expect(fingerprint).not.toBe(getConversationTurnFingerprint(prompt, [image, image]));
+    expect(getConversationTurnFingerprint(prompt, [image, other])).not.toBe(getConversationTurnFingerprint(prompt, [other, image]));
+  });
+
   it("同一提示词生成稳定指纹，不同提示词不会复用统计", () => {
     expect(getConversationTurnFingerprint("修改当前页面")).toBe(getConversationTurnFingerprint("修改当前页面"));
     expect(getConversationTurnFingerprint("修改当前页面")).not.toBe(getConversationTurnFingerprint("修改设置页面"));

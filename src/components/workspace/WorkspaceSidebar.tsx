@@ -61,14 +61,19 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ projects, conve
             const isActive = activeProjectId === project.id;
             const isCollapsed = collapsedProjectIds.includes(project.id);
             const isBusy = projectConversations.some((conversation) => processes[conversation.id]?.busy);
-            const visibleConversationCount = visibleConversationCounts[project.id] ?? CONVERSATION_PAGE_SIZE;
+            const visibleConversationCount = Math.max(
+              visibleConversationCounts[project.id] ?? CONVERSATION_PAGE_SIZE,
+              projectConversations.findIndex((conversation) => conversation.id === activeConversationId) + 1,
+            );
             const visibleProjectConversations = projectConversations.slice(0, visibleConversationCount);
             const hasMoreConversations = visibleProjectConversations.length < projectConversations.length;
             return (
               <div key={project.id} className="min-w-0">
                 <div className={cn("group/project relative flex h-8 min-w-0 items-center gap-0.5 overflow-hidden rounded-[var(--radius-sm)] text-[var(--font-size-12-5)] transition-[background-color,color] duration-[var(--motion-fast)] hover:bg-[var(--bg-hover)] focus-within:bg-[var(--bg-hover)]", isActive ? "text-[var(--accent)]" : "text-[var(--text-secondary)]")}>
-                  <Button type="button" variant="ghost" className="h-8 min-w-0 flex-1 shrink justify-start gap-1.5 overflow-hidden rounded-none px-2 py-1 text-left text-[var(--font-size-12-5)] font-normal text-inherit hover:bg-transparent hover:text-inherit active:scale-100" onClick={() => { onSetProjectCollapsed(project.id, !isCollapsed); onSelectProject(project.id); }} title={project.path} aria-label={isCollapsed ? `展开项目 ${project.name}` : `收起项目 ${project.name}`}>
-                    <span className="grid size-5 shrink-0 place-items-center text-[var(--text-tertiary)]">{isCollapsed ? <FolderClosed size={14} /> : <FolderOpen size={14} />}</span>
+                  <Button type="button" variant="ghost" size="icon-xs" className="ml-1 size-7 shrink-0 text-[var(--text-tertiary)]" onClick={() => onSetProjectCollapsed(project.id, !isCollapsed)} aria-expanded={!isCollapsed} aria-label={isCollapsed ? `展开项目 ${project.name}` : `收起项目 ${project.name}`}>
+                    {isCollapsed ? <FolderClosed size={14} /> : <FolderOpen size={14} />}
+                  </Button>
+                  <Button type="button" variant="ghost" className="h-8 min-w-0 flex-1 shrink justify-start overflow-hidden rounded-none px-1 py-1 text-left text-[var(--font-size-12-5)] font-normal text-inherit hover:bg-transparent hover:text-inherit active:scale-100 group-hover/project:pr-12 group-focus-within/project:pr-12" onClick={() => { if (isCollapsed) onSetProjectCollapsed(project.id, false); if (!isActive) onSelectProject(project.id); }} title={project.path} aria-label={`选择项目 ${project.name}`}>
                     <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
                   </Button>
                   <div className="invisible pointer-events-none absolute inset-y-0 right-0 z-10 flex items-center bg-[var(--bg-hover)] pr-1 opacity-0 transition-opacity duration-[var(--motion-fast)] group-hover/project:visible group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:visible group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100">

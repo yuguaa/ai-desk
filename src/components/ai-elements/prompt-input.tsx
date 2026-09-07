@@ -1,7 +1,10 @@
 import { memo, useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { ArrowUp, Brain, Check, ChevronDown, Cpu, Square } from "@/components/ui/icons";
+import { Input } from "@/components/ui/input";
+import { ImageAttachments } from "@/components/chat/ImageAttachments";
+import type { ImageAttachment } from "@/lib/image-attachments";
+import { ArrowUp, Brain, Check, ChevronDown, Cpu, FileImage, Monitor, Square } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConversationQueue } from "@/components/chat/ConversationQueue";
@@ -15,6 +18,9 @@ type PromptModel = Pick<PiModel, "id" | "name" | "provider">;
 
 type PromptInputState = {
   value: string;
+  hasImages: boolean;
+  attachmentsLoading: boolean;
+  submitDisabled: boolean;
   isRunning?: boolean;
   onChange: (value: string) => void;
   onSubmit: () => void;
@@ -27,6 +33,7 @@ export function PromptInput({
   onSubmit,
   onAbort,
   isRunning,
+  submitDisabled = false,
   footer,
   className,
   placeholder = "随心输入",
@@ -44,11 +51,24 @@ export function PromptInput({
   onRemoveQueuedTurn,
   onSteerQueuedTurn,
   onEditQueuedTurn,
+  images = [],
+  onAddImages,
+  onRemoveImage,
+  attachmentsLoading = false,
+  attachmentError,
+  onCaptureScreenshot,
 }: {
   value: string;
+  images?: ImageAttachment[];
+  onAddImages?: (files: File[]) => void;
+  onRemoveImage?: (id: string) => void;
+  attachmentsLoading?: boolean;
+  attachmentError?: string | null;
+  onCaptureScreenshot?: () => void;
   onChange: (value: string) => void;
   onSubmit: () => void;
   isRunning?: boolean;
+  submitDisabled?: boolean;
   onAbort?: () => void;
   footer?: ReactNode;
   className?: string;
@@ -68,18 +88,49 @@ export function PromptInput({
   onSteerQueuedTurn?: (turnId: string) => void;
   onEditQueuedTurn?: (turnId: string) => void;
 }) {
-  const inputRef = useRef<PromptInputState>({ value, isRunning, onChange, onSubmit, onAbort });
-  inputRef.current = { value, isRunning, onChange, onSubmit, onAbort };
-  const action = isRunning && !value.trim() ? "中止任务" : editingQueuedTurnId ? "保存队列任务" : isRunning ? "加入队列" : "发送";
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const hasImages = images.length > 0;
+  const inputRef = useRef<PromptInputState>({ value, hasImages, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort });
+  inputRef.current = { value, hasImages, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort };
+  const action = isRunning && !value.trim() && !hasImages && !attachmentsLoading ? "中止任务" : editingQueuedTurnId ? "保存队列任务" : isRunning ? "加入队列" : "发送";
 
   return (
     <>
       <ConversationQueue turns={queuedTurns} editingTurnId={editingQueuedTurnId} onReorder={onReorderQueuedTurn} onRemove={onRemoveQueuedTurn} onSteer={onSteerQueuedTurn} onEdit={onEditQueuedTurn} />
-      <form onSubmit={(event) => { event.preventDefault(); submitPrompt(inputRef.current); }} className={cn("overflow-hidden rounded-[var(--radius-composer)] border border-[var(--composer-border)] bg-[var(--composer-bg)] transition-[background-color,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:border-[var(--accent)] focus-within:bg-[var(--composer-bg-hover)]", className)}>
+      <form
+        onPasteCapture={(event) => {
+          const files = Array.from(event.clipboardData.files);
+          if (!files.length) return;
+          /* 文件由附件层读取，阻止编辑器将图片写入正文。 */
+          event.preventDefault();
+          event.stopPropagation();
+          onAddImages?.(files);
+        }}
+        onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }}
+        onDropCapture={(event) => {
+          const files = Array.from(event.dataTransfer.files);
+          if (!files.length) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onAddImages?.(files);
+        }}
+        onSubmit={(event) => { event.preventDefault(); submitPrompt(inputRef.current); }} className={cn("overflow-hidden rounded-[var(--radius-composer)] border border-[var(--composer-border)] bg-[var(--composer-bg)] transition-[background-color,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:border-[var(--accent)] focus-within:bg-[var(--composer-bg-hover)]", className)}>
       <PromptEditor value={value} placeholder={placeholder} action={action} inputRef={inputRef} />
+      {hasImages && <div className="px-3 pb-2"><ImageAttachments images={images} onRemove={onRemoveImage} /></div>}
+      {attachmentsLoading && <p role="status" className="px-3 pb-2 text-[var(--font-size-11)] text-[var(--text-secondary)]">正在读取图片…</p>}
+      {attachmentError && <p role="alert" className="break-words px-3 pb-2 text-[var(--font-size-11)] text-[var(--error)]">{attachmentError}</p>}
       <div data-slot="prompt-toolbar" className="flex min-w-0 items-center justify-between gap-2 px-2 pb-2 pt-1">
         <div className="flex min-w-0 items-center gap-1">
           {footer}
+          {onAddImages && <>
+            <Input ref={fileInputRef} type="file" aria-label="选择图片附件" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={(event) => {
+              const files = Array.from(event.currentTarget.files ?? []);
+              event.currentTarget.value = "";
+              if (files.length) onAddImages(files);
+            }} />
+            <Button type="button" variant="ghost" size="icon-xs" aria-label="添加图片" title="添加图片" onClick={() => fileInputRef.current?.click()}><FileImage size={14} /></Button>
+          </>}
+          {onCaptureScreenshot && <Button type="button" variant="ghost" size="icon-xs" aria-label="截图" title="截图" onClick={onCaptureScreenshot}><Monitor size={14} /></Button>}
           <ModelMenu
             models={models}
             selectedModel={selectedModel}
@@ -97,7 +148,7 @@ export function PromptInput({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <ContextUsageRing usage={contextUsage} />
-          <ComposerActionButton value={value} isRunning={Boolean(isRunning)} isEditingQueue={Boolean(editingQueuedTurnId)} onAbort={onAbort} />
+          <ComposerActionButton hasContent={Boolean(value.trim()) || hasImages} attachmentsLoading={attachmentsLoading} submitDisabled={submitDisabled} isRunning={Boolean(isRunning)} isEditingQueue={Boolean(editingQueuedTurnId)} onAbort={onAbort} />
         </div>
       </div>
       </form>
@@ -151,9 +202,10 @@ const PromptEditor = memo(function PromptEditor({ value, placeholder, action, in
   </div>;
 });
 
-function submitPrompt({ value, isRunning, onAbort, onSubmit }: PromptInputState) {
-  if (isRunning && !value.trim()) onAbort?.();
-  else onSubmit();
+function submitPrompt({ value, hasImages, attachmentsLoading, submitDisabled, isRunning, onAbort, onSubmit }: PromptInputState) {
+  if (attachmentsLoading) return;
+  if (isRunning && !value.trim() && !hasImages) onAbort?.();
+  else if (!submitDisabled && (value.trim() || hasImages)) onSubmit();
 }
 
 function ContextUsageRing({ usage }: { usage?: PiContextUsage | null }) {
@@ -186,15 +238,15 @@ function ContextUsageRing({ usage }: { usage?: PiContextUsage | null }) {
   </Tooltip>;
 }
 
-function ComposerActionButton({ value, isRunning, isEditingQueue, onAbort }: { value: string; isRunning: boolean; isEditingQueue: boolean; onAbort?: () => void }) {
-  if (isRunning && !value.trim()) {
+function ComposerActionButton({ hasContent, attachmentsLoading, submitDisabled, isRunning, isEditingQueue, onAbort }: { hasContent: boolean; attachmentsLoading: boolean; submitDisabled: boolean; isRunning: boolean; isEditingQueue: boolean; onAbort?: () => void }) {
+  if (isRunning && !hasContent && !attachmentsLoading) {
     return <Button type="button" variant="destructive" size="icon-sm" disabled={!onAbort} className="size-7 rounded-full" aria-label="中止任务" title="中止任务" onClick={() => onAbort?.()}>
       <Square className="size-3.5 fill-current" />
     </Button>;
   }
 
   const label = isEditingQueue ? "保存队列任务" : isRunning ? "加入后续队列" : "发送任务";
-  return <Button type="submit" variant="default" size="icon-sm" disabled={!value.trim()} className="size-7 rounded-full bg-[var(--composer-submit-bg)] text-[var(--composer-submit-text)] shadow-none hover:bg-[var(--composer-submit-bg-hover)] active:bg-[var(--composer-submit-bg-hover)]" aria-label={label} title={label}>
+  return <Button type="submit" variant="default" size="icon-sm" disabled={submitDisabled || attachmentsLoading || !hasContent} className="size-7 rounded-full bg-[var(--composer-submit-bg)] text-[var(--composer-submit-text)] shadow-none hover:bg-[var(--composer-submit-bg-hover)] active:bg-[var(--composer-submit-bg-hover)]" aria-label={label} title={label}>
     <ArrowUp className="size-3.5" />
   </Button>;
 }

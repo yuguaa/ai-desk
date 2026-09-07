@@ -61,6 +61,21 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.useRealTimers(); });
 
 describe("useWorkspaceInspector 刷新调度", () => {
+  it("大文本预览绑定当前工作区并清除先前读取错误", () => {
+    const paged: FilePreview = { kind: "pagedText", path: "large.txt", size: 900000, version: "v1" };
+    return Promise.resolve(render("/a")).then(() => {
+      bridge.readWorkspaceFile.mockRejectedValueOnce("读取失败");
+      return act(() => { inspector.openFile("missing.txt"); });
+    }).then(() => {
+      expect(inspector.error).toBe("读取失败");
+      bridge.readWorkspaceFile.mockResolvedValueOnce(paged);
+      return act(() => { inspector.openFile("large.txt"); });
+    }).then(() => {
+      expect(inspector.error).toBeNull();
+      expect(inspector.preview).toEqual({ ...paged, cwd: "/a", mode: "file" });
+    });
+  });
+
   it.each([
     { strict: false, finishBeforeB: true },
     { strict: false, finishBeforeB: false },

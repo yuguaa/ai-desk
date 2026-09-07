@@ -7,14 +7,28 @@ import { getConversationTurnFingerprint, type ConversationTurnChanges } from "@/
 import { MessageCopyButton } from "@/components/chat/MessageCopyButton";
 import { Spinner } from "@/components/ui/spinner";
 import type { QueuedConversationTurn } from "@/lib/conversation-queue";
+import type { ImageAttachment } from "@/lib/image-attachments";
 import type { TimelineItem } from "@/lib/pi-session";
 import type { PiContextUsage, PiExtensionResponse, PiModel } from "@/lib/pi-runtime";
 
 const PromptInput = lazy(() => import("@/components/ai-elements/prompt-input").then((module) => ({ default: module.PromptInput })));
 const TimelineItemView = lazy(() => import("@/components/chat/TimelineItemView").then((module) => ({ default: module.TimelineItemView })));
 
-export function ChatPanel({ conversationId, timeline, draft, isBusy, isTimelineLoading = false, queuedTurns, editingQueuedTurnId, turnChanges, models, selectedModel, thinkingLevel, thinkingLevels, contextUsage, runtimeAvailable, activeExtensionRequest, extensionNotifications, extensionStatuses, extensionWidgets, onModelChange, onThinkingChange, onReorderQueuedTurn, onRemoveQueuedTurn, onSteerQueuedTurn, onEditQueuedTurn, onDraftChange, onSend, onAbort, onViewChanges, onRefreshChanges, onPreviewChange, onRevertChange, onRespondToExtensionUi }: { conversationId: string; timeline: TimelineItem[]; draft: string; isBusy: boolean; isTimelineLoading?: boolean; queuedTurns?: QueuedConversationTurn[]; editingQueuedTurnId?: string | null; turnChanges: Record<number, ConversationTurnChanges>; models: PiModel[]; selectedModel: PiModel | null; thinkingLevel: string | null; thinkingLevels: string[]; contextUsage: PiContextUsage | null; runtimeAvailable: boolean; activeExtensionRequest: unknown; extensionNotifications: unknown[]; extensionStatuses: unknown[]; extensionWidgets: unknown[]; onModelChange: (modelKey: string) => void; onThinkingChange: (level: string) => void; onReorderQueuedTurn?: (sourceId: string, targetId: string) => void; onRemoveQueuedTurn?: (turnId: string) => void; onSteerQueuedTurn?: (turnId: string) => void; onEditQueuedTurn?: (turnId: string) => void; onDraftChange: (value: string) => void; onSend: () => void; onAbort: () => void; onViewChanges: () => void; onRefreshChanges: (turnIndex: number) => void; onPreviewChange: (turnIndex: number, path: string) => void; onRevertChange: (turnIndex: number, path?: string) => Promise<boolean> | void; onRespondToExtensionUi: (response: PiExtensionResponse) => void }) {
+export function ChatPanel({ images = [], onAddImages, onRemoveImage, attachmentsLoading = false, attachmentError, onCaptureScreenshot, canSend, conversationId, timeline, draft, isBusy, isTimelineLoading = false, queuedTurns, editingQueuedTurnId, turnChanges, models, selectedModel, thinkingLevel, thinkingLevels, contextUsage, runtimeAvailable, activeExtensionRequest, extensionNotifications, extensionStatuses, extensionWidgets, onModelChange, onThinkingChange, onReorderQueuedTurn, onRemoveQueuedTurn, onSteerQueuedTurn, onEditQueuedTurn, onDraftChange, onSend, onAbort, onViewChanges, onRefreshChanges, onPreviewChange, onRevertChange, onRespondToExtensionUi }: {
+  images?: ImageAttachment[];
+  onAddImages?: (files: File[]) => void;
+  onRemoveImage?: (id: string) => void;
+  attachmentsLoading?: boolean;
+  attachmentError?: string | null;
+  onCaptureScreenshot?: () => void;
+  canSend: boolean; conversationId: string; timeline: TimelineItem[]; draft: string; isBusy: boolean; isTimelineLoading?: boolean; queuedTurns?: QueuedConversationTurn[]; editingQueuedTurnId?: string | null; turnChanges: Record<number, ConversationTurnChanges>; models: PiModel[]; selectedModel: PiModel | null; thinkingLevel: string | null; thinkingLevels: string[]; contextUsage: PiContextUsage | null; runtimeAvailable: boolean; activeExtensionRequest: unknown; extensionNotifications: unknown[]; extensionStatuses: unknown[]; extensionWidgets: unknown[]; onModelChange: (modelKey: string) => void; onThinkingChange: (level: string) => void; onReorderQueuedTurn?: (sourceId: string, targetId: string) => void; onRemoveQueuedTurn?: (turnId: string) => void; onSteerQueuedTurn?: (turnId: string) => void; onEditQueuedTurn?: (turnId: string) => void; onDraftChange: (value: string) => void; onSend: () => void; onAbort: () => void; onViewChanges: () => void; onRefreshChanges: (turnIndex: number) => void; onPreviewChange: (turnIndex: number, path: string) => void; onRevertChange: (turnIndex: number, path?: string) => Promise<boolean> | void; onRespondToExtensionUi: (response: PiExtensionResponse) => void;
+}) {
   const [scrollToBottomTrigger, setScrollToBottomTrigger] = useState(0);
+  /* 模型能力只约束含图草稿，不影响普通文本发送和附件编辑。 */
+  const imageModelError = !images.length ? null : !selectedModel?.input
+    ? "模型信息未就绪，暂时无法发送图片"
+    : !selectedModel.input.includes("image") ? "当前模型不支持图片，请选择支持图片的模型" : null;
+  const submitDisabled = !canSend || isTimelineLoading || attachmentsLoading || Boolean(imageModelError);
   let turnIndex = -1;
   let promptFingerprint = "";
   // 当前轮次的 AI 回复文本、时间与流式状态，在轮末统一展示复制与时间
@@ -22,7 +36,7 @@ export function ChatPanel({ conversationId, timeline, draft, isBusy, isTimelineL
   let turnTime = "";
   let turnStreaming = false;
   const sendMessage = () => {
-    if (isTimelineLoading || !draft.trim()) return;
+    if (submitDisabled || (!draft.trim() && !images.length)) return;
     onSend();
     setScrollToBottomTrigger((current) => current + 1);
   };
@@ -40,7 +54,7 @@ export function ChatPanel({ conversationId, timeline, draft, isBusy, isTimelineL
             {timeline.map((item, itemIndex) => {
               if (item.type === "user") {
                 turnIndex += 1;
-                promptFingerprint = getConversationTurnFingerprint(item.text);
+                promptFingerprint = getConversationTurnFingerprint(item.text, item.images);
                 assistantTexts = [];
                 turnTime = "";
                 turnStreaming = false;
@@ -62,7 +76,7 @@ export function ChatPanel({ conversationId, timeline, draft, isBusy, isTimelineL
         </div>
       </Conversation>}
     </div>
-    <div data-slot="conversation-composer" className="shrink-0 px-[var(--container-padding)] pb-[var(--container-padding)] pt-[var(--container-padding-tight)]"><div className="conversation-column"><Suspense fallback={<div className="h-[116px] rounded-[var(--radius-composer)] bg-[var(--composer-bg)]" aria-busy="true" />}><PromptInput value={draft} onChange={onDraftChange} onSubmit={sendMessage} onAbort={onAbort} isRunning={isBusy} queuedTurns={queuedTurns} editingQueuedTurnId={editingQueuedTurnId} models={models} selectedModel={selectedModel} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} contextUsage={contextUsage} runtimeAvailable={runtimeAvailable} onModelChange={onModelChange} onThinkingChange={onThinkingChange} onReorderQueuedTurn={onReorderQueuedTurn} onRemoveQueuedTurn={onRemoveQueuedTurn} onSteerQueuedTurn={onSteerQueuedTurn} onEditQueuedTurn={onEditQueuedTurn} /></Suspense></div></div>
+    <div data-slot="conversation-composer" className="shrink-0 px-[var(--container-padding)] pb-[var(--container-padding)] pt-[var(--container-padding-tight)]"><div className="conversation-column"><Suspense fallback={<div className="h-[116px] rounded-[var(--radius-composer)] bg-[var(--composer-bg)]" aria-busy="true" />}><PromptInput images={images} onAddImages={onAddImages} onRemoveImage={onRemoveImage} attachmentsLoading={attachmentsLoading} attachmentError={[imageModelError, attachmentError].filter(Boolean).join("；") || null} onCaptureScreenshot={onCaptureScreenshot} value={draft} onChange={onDraftChange} onSubmit={sendMessage} submitDisabled={submitDisabled} onAbort={onAbort} isRunning={isBusy} queuedTurns={queuedTurns} editingQueuedTurnId={editingQueuedTurnId} models={models} selectedModel={selectedModel} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} contextUsage={contextUsage} runtimeAvailable={runtimeAvailable} onModelChange={onModelChange} onThinkingChange={onThinkingChange} onReorderQueuedTurn={onReorderQueuedTurn} onRemoveQueuedTurn={onRemoveQueuedTurn} onSteerQueuedTurn={onSteerQueuedTurn} onEditQueuedTurn={onEditQueuedTurn} /></Suspense></div></div>
   </div>;
 }
 

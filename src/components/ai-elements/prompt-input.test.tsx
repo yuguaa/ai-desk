@@ -4,6 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PromptInput as PromptInputBase } from "@/components/ai-elements/prompt-input";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import type { ImageAttachment } from "@/lib/image-attachments";
+
+Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 
 // jsdom 缺少 ResizeObserver，radix TooltipContent 需要
 Reflect.set(globalThis, "ResizeObserver", class {
@@ -29,6 +32,91 @@ afterEach(() => {
 });
 
 describe("PromptInput", () => {
+  const images: ImageAttachment[] = [{ id: "image-1", name: "截图.png", type: "image", data: "aGVsbG8=", mimeType: "image/png" }];
+  function renderInput(props: Partial<ComponentProps<typeof PromptInputBase>> = {}) {
+    if (!container) {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+    }
+    return act(() => { root?.render(<PromptInput value="" onChange={() => undefined} onSubmit={() => undefined} {...props} />); });
+  }
+
+  it("纯图支持按钮和 Enter 发送，运行中加入队列而不中止", async () => {
+    const onSubmit = vi.fn();
+    const onAbort = vi.fn();
+    await renderInput({ images, onSubmit, onAbort });
+    expect(container!.querySelector<HTMLButtonElement>('[aria-label="发送任务"]')!.disabled).toBe(false);
+    await act(() => container!.querySelector<HTMLButtonElement>('[aria-label="发送任务"]')!.click());
+    await renderInput({ images, onSubmit, onAbort, isRunning: true });
+    expect(container!.querySelector('[aria-label="中止任务"]')).toBeNull();
+    await act(() => { container!.querySelector('.ProseMirror')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(onAbort).not.toHaveBeenCalled();
+  });
+
+  it("读入图片时禁止按钮、表单和 Enter 提交，仍可编辑和移除", async () => {
+    const onSubmit = vi.fn();
+    const onRemoveImage = vi.fn();
+    await renderInput({ value: "继续编辑", images, attachmentsLoading: true, attachmentError: "图片读取失败", onSubmit, onRemoveImage });
+    expect(container!.querySelector<HTMLButtonElement>('[aria-label="发送任务"]')!.disabled).toBe(true);
+    expect(container!.querySelector('.ProseMirror')!.getAttribute('contenteditable')).toBe('true');
+    expect(container!.querySelector('[role="status"]')!.textContent).toContain('正在读取图片');
+    expect(container!.querySelector('[role="alert"]')!.textContent).toBe('图片读取失败');
+    await act(() => {
+      container!.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      container!.querySelector('.ProseMirror')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      container!.querySelector<HTMLButtonElement>('[aria-label="移除图片：截图.png"]')!.click();
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onRemoveImage).toHaveBeenCalledWith('image-1');
+    await renderInput({ images, onSubmit });
+    expect(container!.querySelector<HTMLButtonElement>('[aria-label="发送任务"]')!.disabled).toBe(false);
+  });
+
+  it("选择、粘贴和拖入文件统一回调，不写入编辑器 HTML", async () => {
+    const onAddImages = vi.fn();
+    const file = new File(['image'], '图片.png', { type: 'image/png' });
+    await renderInput({ onAddImages });
+    const input = container!.querySelector<HTMLInputElement>('input[type="file"]')!;
+    expect(input.accept).toBe('image/png,image/jpeg,image/webp,image/gif');
+    expect(input.multiple).toBe(true);
+    Object.defineProperty(input, 'files', { value: [file] });
+    await act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    for (const kind of ['paste', 'drop']) {
+      const event = new Event(kind, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, kind === 'paste' ? 'clipboardData' : 'dataTransfer', { value: { files: [file], types: ['Files'], getData: () => '<img src="x">' } });
+      await act(() => { container!.querySelector('.ProseMirror')!.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(true);
+    }
+    expect(onAddImages).toHaveBeenCalledTimes(3);
+    expect(onAddImages).toHaveBeenLastCalledWith([file]);
+    expect(container!.querySelector('.ProseMirror img')).toBeNull();
+  });
+
+  it("普通文本粘贴保留，截图按钮仅在提供回调时展示", async () => {
+    const onChange = vi.fn();
+    const onAddImages = vi.fn();
+    const onCaptureScreenshot = vi.fn();
+    await renderInput({ onChange, onAddImages });
+    expect(container!.querySelector('[aria-label="截图"]')).toBeNull();
+    const paste = new Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', { value: { files: [], types: ['text/plain'], getData: (type: string) => type === 'text/plain' ? '普通文本' : '' } });
+    await act(() => { container!.querySelector('.ProseMirror')!.dispatchEvent(paste); });
+    expect(onChange).toHaveBeenCalledWith('普通文本');
+    expect(onAddImages).not.toHaveBeenCalled();
+    await renderInput({ onCaptureScreenshot });
+    await act(() => container!.querySelector<HTMLButtonElement>('[aria-label="截图"]')!.click());
+    expect(onCaptureScreenshot).toHaveBeenCalledOnce();
+  });
+
+  it("纯图队列任务展示数量和缩略图", async () => {
+    await renderInput({ queuedTurns: [{ id: 'q-image', conversationId: 'c1', prompt: '', createdAt: 1, images }] });
+    const queue = container!.querySelector('[data-slot="conversation-queue"]')!;
+    expect(queue.textContent).toContain('1 张图片');
+    expect(queue.querySelector('img')!.alt).toBe('截图.png');
+  });
+
   it("把模型和思考深度放在 Tiptap 输入框内部", async () => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -108,6 +196,22 @@ describe("PromptInput", () => {
     expect(onSubmit).toHaveBeenCalledOnce();
   });
 
+  it.each(["", "  \n  "])("空白草稿不通过键盘或表单发送：%j", async (value) => {
+    const onSubmit = vi.fn();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(() => root?.render(<PromptInput value={value} onChange={() => undefined} onSubmit={onSubmit} />));
+
+    await act(() => {
+      container?.querySelector(".ProseMirror")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      container?.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLButtonElement>('button[aria-label="发送任务"]')?.disabled).toBe(true);
+  });
+
   it("按 Shift + Enter 只换行，不发送任务", async () => {
     const onChange = vi.fn();
     const onSubmit = vi.fn();
@@ -127,7 +231,30 @@ describe("PromptInput", () => {
     expect(onChange.mock.calls.at(-1)?.[0]).toContain("\n");
   });
 
-  it("输入法组词期间按 Enter 不发送任务", async () => {
+  it("禁止提交时键盘和表单均不发送，仍可中止运行中的任务", async () => {
+    const onSubmit = vi.fn();
+    const onAbort = vi.fn();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const props = { onChange: vi.fn(), onSubmit, onAbort, submitDisabled: true, isRunning: true };
+    await act(() => root?.render(<PromptInput {...props} value="待发送草稿" />));
+    await act(() => {
+      container?.querySelector(".ProseMirror")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      container?.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onAbort).not.toHaveBeenCalled();
+
+    await act(() => root?.render(<PromptInput {...props} value="" />));
+    const abortButton = container.querySelector<HTMLButtonElement>('button[aria-label="中止任务"]');
+    expect(abortButton?.disabled).toBe(false);
+    await act(() => abortButton?.click());
+    expect(onAbort).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it.each([{ isComposing: true }, { keyCode: 229 }])("输入法确认候选词时不发送任务：%j", async (composition) => {
     const onSubmit = vi.fn();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -138,7 +265,7 @@ describe("PromptInput", () => {
     });
 
     await act(async () => {
-      container?.querySelector(".ProseMirror")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }));
+      container?.querySelector(".ProseMirror")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ...composition, bubbles: true, cancelable: true }));
     });
 
     expect(onSubmit).not.toHaveBeenCalled();

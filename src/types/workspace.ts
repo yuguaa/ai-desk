@@ -45,6 +45,12 @@ export type GitAction =
 
 export type FilePreview =
   | {
+      kind: "pagedText";
+      path: string;
+      size: number;
+      version: string;
+    }
+  | {
       kind: "text";
       path: string;
       language: string;
@@ -56,3 +62,5 @@ export type FilePreview =
       mimeType: string;
       data: string;
     };
+
+export type TextFileChunk = { content: string; nextOffset: number; size: number };

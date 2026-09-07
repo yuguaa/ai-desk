@@ -25,6 +25,7 @@ let container: HTMLDivElement | undefined;
 
 const defaultProps: ComponentProps<typeof ChatPanel> = {
   conversationId: "session-1",
+  canSend: true,
   timeline: [],
   draft: "",
   isBusy: false,
@@ -66,6 +67,24 @@ afterEach(() => {
 });
 
 describe("ChatPanel", () => {
+  it.each(["纯图", "读取中", "模型未就绪", "模型不支持", "无项目", "会话加载中"])("sendMessage 自身校验附件发送条件：%s", async (scenario) => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const onSend = vi.fn();
+    await act(() => renderChatPanel({
+      images: [{ id: "image-1", name: "图片.png", type: "image", data: "aGVsbG8=", mimeType: "image/png" }],
+      selectedModel: scenario === "模型未就绪" ? null : { id: "model", name: "Model", provider: "provider", reasoning: false, contextWindow: 200_000, input: scenario === "模型不支持" ? ["text"] : ["text", "image"] },
+      draft: "", onSend,
+      attachmentsLoading: scenario === "读取中",
+      canSend: scenario !== "无项目",
+      isTimelineLoading: scenario === "会话加载中",
+    }));
+    /* 跳过输入框的禁用按钮，验证 ChatPanel 不依赖子组件防护。 */
+    await act(() => container!.querySelector<HTMLElement>('[data-slot="prompt-input"]')!.click());
+    expect(onSend).toHaveBeenCalledTimes(scenario === "纯图" ? 1 : 0);
+  });
+
   it.each([false, true])("加载时隐藏旧消息和空态且不扫描时间线（空时间线：%s）", async (empty) => {
     container = document.createElement("div");
     document.body.appendChild(container);

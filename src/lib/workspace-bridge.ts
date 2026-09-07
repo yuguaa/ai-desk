@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { isTauriRuntime } from "@/lib/pi-bridge";
-import type { FilePreview, GitAction, GitStatus, WorkspaceFile } from "@/types/workspace";
+import type { FilePreview, GitAction, GitStatus, WorkspaceFile, TextFileChunk } from "@/types/workspace";
 
 export type GitSnapshotTree = string | null;
 export type GitSnapshotStatus = GitStatus;
@@ -16,6 +16,10 @@ export function listWorkspaceFiles(cwd: string) {
 export function readWorkspaceFile(cwd: string, path: string) {
   if (!isTauriRuntime()) return Promise.resolve<FilePreview | null>(null);
   return invoke<FilePreview>("read_workspace_file", { cwd, path });
+}
+
+export function readWorkspaceFileChunk(cwd: string, path: string, offset: number, version: string) {
+  return invoke<TextFileChunk>("read_workspace_file_chunk", { cwd, path, offset, version });
 }
 
 export function getGitStatus(cwd: string) {

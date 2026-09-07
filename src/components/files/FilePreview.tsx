@@ -10,10 +10,14 @@ import type { InspectorPreview } from "@/hooks/use-workspace-inspector";
  */
 const CodeBlock = lazy(() => import("@/components/files/CodeBlock").then((module) => ({ default: module.CodeBlock })));
 const DiffPreview = lazy(() => import("@/components/files/DiffPreview").then((module) => ({ default: module.DiffPreview })));
+const PagedTextPreview = lazy(() => import("@/components/files/PagedTextPreview").then((module) => ({ default: module.PagedTextPreview })));
 
 export function FilePreview({ preview, onClose }: { preview: InspectorPreview; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   const isDiff = preview.mode === "diff";
+  if (preview.kind === "pagedText") {
+    return <Suspense fallback={<div aria-busy="true" aria-label="正在加载预览" />}><PagedTextPreview key={JSON.stringify([preview.cwd, preview.path, preview.version])} preview={preview} onClose={onClose} /></Suspense>;
+  }
   const copy = () => {
     if (preview.kind !== "text") return;
     navigator.clipboard.writeText(preview.content).then(() => {

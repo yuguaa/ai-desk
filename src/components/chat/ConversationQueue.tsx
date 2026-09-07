@@ -60,6 +60,10 @@ export function ConversationQueue({ turns, editingTurnId, onReorder, onRemove, o
           onDragEnd={() => setDraggingId("")}
           onKeyDown={(event) => moveByKeyboard(event, turnIndex)}
         ><GripVertical size={13} /></Button>
+        {!!turn.images?.length && <>
+          <img src={`data:${turn.images[0].mimeType};base64,${turn.images[0].data}`} alt={turn.images[0].name} draggable={false} className="size-7 shrink-0 rounded-[var(--radius-sm)] object-cover" />
+          <span className="shrink-0 text-[var(--text-tertiary)]">{turn.images.length} 张图片</span>
+        </>}
         <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]" title={turn.prompt}>{turn.prompt}</span>
         <Button type="button" variant="ghost" size="icon-xs" disabled={queueLocked} aria-label={editingTurnId === turn.id ? `正在编辑队列任务：${turn.prompt}` : `编辑队列任务：${turn.prompt}`} title={editingTurnId === turn.id ? "正在编辑" : "编辑"} className="text-[var(--text-tertiary)]" onClick={() => onEdit?.(turn.id)}><Pencil size={12} /></Button>
         <Button type="button" variant="ghost" size="xs" disabled={queueLocked} aria-label={`引导队列任务：${turn.prompt}`} title="立即发送为引导" className="px-1.5 text-[var(--accent)]" onClick={() => onSteer?.(turn.id)}>引导</Button>

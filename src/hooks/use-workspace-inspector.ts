@@ -3,7 +3,8 @@ import { getGitDiff, getGitSnapshotDiff, getGitSnapshotDiffBetween, getGitStatus
 import type { FilePreview, GitAction, GitStatus, WorkspaceFile } from "@/types/workspace";
 
 export type InspectorPreview =
-  | (FilePreview & { mode: "file" })
+  | (Exclude<FilePreview, { kind: "pagedText" }> & { mode: "file" })
+  | (Extract<FilePreview, { kind: "pagedText" }> & { mode: "file"; cwd: string })
   | (Extract<FilePreview, { kind: "text" }> & { mode: "diff" });
 
 type InspectorSession = {
@@ -141,10 +142,13 @@ export function useWorkspaceInspector(cwd: string) {
     const session = sessionRef.current;
     if (!session?.active || session.cwd !== cwd) return;
     const requestId = ++session.previewRequest;
+    setError(null);
     setSelectedPath(path);
     readWorkspaceFile(cwd, path)
       .then((nextPreview) => {
-        if (session.active && requestId === session.previewRequest && nextPreview) setPreview({ ...nextPreview, mode: "file" });
+        if (session.active && requestId === session.previewRequest && nextPreview) {
+          setPreview(nextPreview.kind === "pagedText" ? { ...nextPreview, mode: "file", cwd } : { ...nextPreview, mode: "file" });
+        }
       })
       .catch((reason) => {
         if (session.active && requestId === session.previewRequest) setError(reason instanceof Error ? reason.message : String(reason));

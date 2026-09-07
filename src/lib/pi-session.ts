@@ -1,11 +1,31 @@
+import { IMAGE_MIME_TYPES, type ImageAttachment } from "@/lib/image-attachments";
+
 export type TimelineItem =
-  | { id: string; type: "user"; text: string; time: string; messageId?: string; contentIndex?: number }
+  | { id: string; type: "user"; text: string; time: string; images?: ImageAttachment[]; messageId?: string; contentIndex?: number }
   | { id: string; type: "assistant"; text: string; time: string; streaming?: boolean; messageId?: string; contentIndex?: number }
   | { id: string; type: "reasoning"; text: string; status?: "running" | "completed"; messageId?: string; contentIndex?: number }
   | { id: string; type: "tool"; name: string; command: string; output: string; status: "completed" | "running" | "error"; messageId?: string; contentIndex?: number; toolCallId?: string };
 
 type SessionEntry = Record<string, unknown>;
 type ToolResultRecord = { output: string; isError: boolean; toolName?: string };
+
+export function imagesFromContent(content: unknown, messageId: string): ImageAttachment[] {
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((part, index): ImageAttachment[] => {
+    if (!part || typeof part !== "object") return [];
+    const { type, data, mimeType } = part as Record<string, unknown>;
+    if (type !== "image" || typeof mimeType !== "string" || !IMAGE_MIME_TYPES.includes(mimeType)) return [];
+    /* 历史只接收协议中的原始 base64，拒绝外链、data URL 和不完整编码。 */
+    if (typeof data !== "string" || !data.length || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return [];
+    return [{
+      id: `${messageId}-image-${index}`,
+      name: `image-${index + 1}.${mimeType.slice(6)}`,
+      type: "image",
+      data,
+      mimeType,
+    }];
+  });
+}
 
 export function textFromContent(content: unknown, options: { includeText?: boolean; includeThinking?: boolean } = {}) {
   const includeText = options.includeText ?? true;
@@ -51,7 +71,8 @@ export function projectPiSession(entries: SessionEntry[]): TimelineItem[] {
 
       if (message.role === "user") {
         const text = textFromContent(message.content, { includeThinking: false });
-        if (text) output.push({ id: entryId, type: "user", text, time: timestamp, messageId: entryId });
+        const images = imagesFromContent(message.content, entryId);
+        if (text || images.length) output.push({ id: entryId, type: "user", text, time: timestamp, messageId: entryId, ...(images.length ? { images } : {}) });
       }
 
       if (message.role === "assistant") {

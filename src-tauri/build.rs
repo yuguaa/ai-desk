@@ -1,4 +1,7 @@
+mod screenshot_build;
+
 fn main() {
+    screenshot_build::build();
     let version =
         std::fs::read_to_string("pi-runtime-version.txt").expect("read pi-runtime-version.txt");
     let version = version.trim();

@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TimelineItemView } from "@/components/chat/TimelineItemView";
-import { MessageResponse } from "@/components/ai-elements/message";
+import { MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { Reasoning } from "@/components/ai-elements/reasoning";
 import { Tool } from "@/components/ai-elements/tool";
 import type { TimelineItem } from "@/lib/pi-session";
@@ -26,6 +26,32 @@ afterEach(() => {
 });
 
 describe("TimelineItemView", () => {
+  const images = [{ id: "image-1", name: "image-1.png", type: "image" as const, data: "aGVsbG8=", mimeType: "image/png" as const }];
+
+  it.each(["", "   ", "检查图片"])("用户图片回显，正文为 %j 时不产生空泡", (text) => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => { root?.render(<TimelineItemView item={{ id: "user", type: "user", text, time: "现在", images }} />); });
+    const img = container.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("data:image/png;base64,aGVsbG8=");
+    expect(container.textContent).toContain("现在");
+    expect(vi.mocked(MessageContent).mock.calls.length > 0).toBe(Boolean(text.trim()));
+    expect(container.querySelector('button[aria-label="复制消息"]') !== null).toBe(Boolean(text.trim()));
+    expect(container.querySelector('button[aria-label*="移除"]')).toBeNull();
+    if (!text.trim()) expect(vi.mocked(MessageResponse)).not.toHaveBeenCalled();
+  });
+
+  it("图片变化时更新回显", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const item: TimelineItem = { id: "user", type: "user", text: "", time: "现在", images };
+    act(() => { root?.render(<TimelineItemView item={item} />); });
+    act(() => { root?.render(<TimelineItemView item={{ ...item, images: [{ ...images[0], data: "dGVzdA==" }] }} />); });
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,dGVzdA==");
+  });
+
   const user: TimelineItem = { id: "user", type: "user", text: "问题", time: "现在" };
   const assistant: TimelineItem = { id: "assistant", type: "assistant", text: "回答", time: "现在", streaming: true };
   const reasoning: TimelineItem = { id: "reasoning", type: "reasoning", text: "分析", status: "running" };

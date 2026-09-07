@@ -24,6 +24,32 @@ afterEach(() => {
 });
 
 describe("WorkspaceSidebar", () => {
+  it("折叠项目不切换会话，点击当前项目名称不重置当前对话", () => {
+    const onSelectProject = vi.fn();
+    const onSetProjectCollapsed = vi.fn();
+    const render = mountGroupingSidebar({ projects: [{ id: "alpha", name: "alpha", path: "alpha" }], conversations: [] });
+    render({ activeProjectId: "alpha", onSelectProject, onSetProjectCollapsed });
+    act(() => container!.querySelector<HTMLButtonElement>('button[aria-label="收起项目 alpha"]')!.click());
+    expect(onSetProjectCollapsed).toHaveBeenLastCalledWith("alpha", true);
+    expect(onSelectProject).not.toHaveBeenCalled();
+    act(() => container!.querySelector<HTMLButtonElement>('button[aria-label="选择项目 alpha"]')!.click());
+    expect(onSelectProject).not.toHaveBeenCalled();
+    render({ collapsedProjectIds: ["alpha"], onSelectProject, onSetProjectCollapsed });
+    act(() => container!.querySelector<HTMLButtonElement>('button[aria-label="选择项目 alpha"]')!.click());
+    expect(onSelectProject).toHaveBeenLastCalledWith("alpha");
+    expect(onSetProjectCollapsed).toHaveBeenLastCalledWith("alpha", false);
+  });
+
+  it("当前会话在分页之外时仍显示，展开更多接续当前可见范围", () => {
+    const conversations = Array.from({ length: 13 }, (_, index) => trackedConversation(`alpha-${index}`, "alpha", () => undefined));
+    const render = mountGroupingSidebar({ projects: [{ id: "alpha", name: "alpha", path: "alpha" }], conversations });
+    render({ activeConversationId: "alpha-7" });
+    expect(projectTitles("alpha")).toHaveLength(8);
+    expect(projectTitles("alpha")).toContain("alpha-7");
+    act(() => container!.querySelector<HTMLButtonElement>('button[aria-label="展开 alpha 的更多对话"]')!.click());
+    expect(projectTitles("alpha")).toHaveLength(13);
+  });
+
   it("分组只读取 C 次 projectId，进程变化和展开分页不重新分组", () => {
     const readProjectId = vi.fn();
     const conversations = Array.from({ length: 6 }, (_, index) => [
@@ -186,7 +212,7 @@ describe("WorkspaceSidebar", () => {
     expect(onArchiveConversation).toHaveBeenCalledOnce();
   });
 
-  it("项目名称切换展开状态", async () => {
+  it("项目折叠按钮只切换展开状态", async () => {
     const onSetProjectCollapsed = vi.fn();
     const onSelectProject = vi.fn();
     container = document.createElement("div");
@@ -223,7 +249,7 @@ describe("WorkspaceSidebar", () => {
     expect(projectName).not.toBeNull();
     act(() => projectName?.click());
     expect(onSetProjectCollapsed).toHaveBeenCalledWith("/code/demo", true);
-    expect(onSelectProject).toHaveBeenCalledWith("/code/demo");
+    expect(onSelectProject).not.toHaveBeenCalled();
 
     onSetProjectCollapsed.mockClear();
     await act(async () => renderSidebar(["/code/demo"]));
@@ -231,7 +257,7 @@ describe("WorkspaceSidebar", () => {
     expect(collapsedProjectName).not.toBeNull();
     act(() => collapsedProjectName?.click());
     expect(onSetProjectCollapsed).toHaveBeenCalledWith("/code/demo", false);
-    expect(onSelectProject).toHaveBeenCalledWith("/code/demo");
+    expect(onSelectProject).not.toHaveBeenCalled();
   });
 
   it("运行中的会话不允许归档", async () => {

@@ -1,6 +1,7 @@
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 
 const workspace = vi.hoisted(() => ({
   activeProject: { id: "/demo", name: "demo", path: "/demo" },
@@ -15,6 +16,7 @@ const workspace = vi.hoisted(() => ({
   isLoading: false,
   timeline: [],
   draft: "",
+  imageDraft: { images: [], pending: 0, error: null, addFiles: vi.fn(), remove: vi.fn() },
   queuedTurns: [],
   conversationState: { availableModels: [], model: "", thinkingLevel: "", availableThinkingLevels: [] },
   runtimeIsTauri: false,
@@ -56,7 +58,7 @@ vi.mock("@/components/workspace/AppTopbar", () => ({ AppTopbar: () => null }));
 vi.mock("@/components/workspace/WorkspaceSidebar", () => ({ WorkspaceSidebar: () => null }));
 vi.mock("@/components/workspace/WorkspaceHeader", () => ({ WorkspaceHeader: () => null }));
 vi.mock("@/components/workspace/WorkspaceInspector", () => ({ WorkspaceInspector: () => null }));
-vi.mock("@/components/chat/ChatPanel", () => ({ ChatPanel: () => null }));
+vi.mock("@/components/chat/ChatPanel", () => ({ ChatPanel: vi.fn(() => null) }));
 vi.mock("@/hooks/use-workspace", () => ({ useWorkspace: () => workspace }));
 vi.mock("@/hooks/use-conversation-changes", () => ({
   useConversationChanges: () => ({ changesByTurn: {}, startTurn: vi.fn(), refreshTurn: vi.fn() }),
@@ -82,7 +84,26 @@ vi.mock("@/hooks/use-workspace-inspector", () => ({
 
 import WorkspacePage from "@/pages/WorkspacePage";
 
+afterEach(() => {
+  workspace.activeProject = { id: "/demo", name: "demo", path: "/demo" };
+  workspace.draft = "";
+  vi.clearAllMocks();
+});
+
 describe("WorkspacePage panel layout", () => {
+  it.each(["", "/demo"])("按项目而非会话决定是否可发送：%j", (projectId) => {
+    workspace.activeProject = { id: projectId, name: "demo", path: projectId };
+    workspace.draft = "首次任务";
+    renderToStaticMarkup(<WorkspacePage onOpenSettings={vi.fn()} />);
+
+    expect(workspace.activeConversationId).toBe("");
+    expect(vi.mocked(ChatPanel).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      canSend: Boolean(projectId),
+      conversationId: "",
+      draft: "首次任务",
+    }));
+  });
+
   it("只使用三块区域的最小宽度约束拖动范围", () => {
     const html = renderToStaticMarkup(<WorkspacePage onOpenSettings={vi.fn()} />);
 

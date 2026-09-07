@@ -1,4 +1,5 @@
 import type { GitFileStatus, GitStatus } from "@/types/workspace";
+import type { ImageAttachment } from "@/lib/image-attachments";
 
 export type ConversationSnapshotStatus = GitStatus;
 
@@ -22,7 +23,23 @@ export function getConversationTurnKey(cwd: string, conversationId: string, turn
   return `${cwd}::${conversationId}::${turnIndex}`;
 }
 
-export function getConversationTurnFingerprint(prompt: string) {
+const imageFingerprints = new WeakMap<ImageAttachment, string>();
+
+export function getConversationTurnFingerprint(prompt: string, images: ImageAttachment[] = []) {
+  const textFingerprint = fingerprintText(prompt);
+  if (!images.length) return textFingerprint;
+  /* 图片对象在流式更新间不变，避免每个 token 都重新遍历 base64。 */
+  return `${textFingerprint}:${images.map((image) => {
+    let fingerprint = imageFingerprints.get(image);
+    if (!fingerprint) {
+      fingerprint = fingerprintText(`${image.mimeType}:${image.data}`);
+      imageFingerprints.set(image, fingerprint);
+    }
+    return fingerprint;
+  }).join(":")}`;
+}
+
+function fingerprintText(prompt: string) {
   let hash = 2166136261;
   for (let index = 0; index < prompt.length; index += 1) {
     hash ^= prompt.charCodeAt(index);

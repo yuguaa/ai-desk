@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "@/App";
@@ -14,10 +14,20 @@ const mocks = vi.hoisted(() => ({
   downloadAppUpdate: vi.fn(),
   installDownloadedAppUpdate: vi.fn(),
   relaunchApp: vi.fn(),
+  workspaceUnmount: vi.fn(),
 }));
 
 vi.mock("@/pages/WorkspacePage", () => ({
-  default: ({ onOpenSettings }: { onOpenSettings: () => void }) => <button type="button" aria-label="打开设置" onClick={onOpenSettings}>设置</button>,
+  default: ({ onOpenSettings }: { onOpenSettings: () => void }) => {
+    const [draft, setDraft] = useState("");
+    const [events, setEvents] = useState(0);
+    useEffect(() => {
+      const onEvent = () => setEvents((count) => count + 1);
+      window.addEventListener("workspace-test-event", onEvent);
+      return () => { window.removeEventListener("workspace-test-event", onEvent); mocks.workspaceUnmount(); };
+    }, []);
+    return <section aria-label="测试工作区"><button type="button" aria-label="打开设置" onClick={onOpenSettings}>设置</button><input aria-label="测试草稿" value={draft} onChange={(event) => setDraft(event.target.value)} /><output>{events}</output></section>;
+  },
 }));
 vi.mock("@/components/mascot/Mascot", () => ({ Mascot: () => null, mascotImageFor: () => null }));
 vi.mock("@/hooks/use-app-settings", () => ({
@@ -41,6 +51,7 @@ beforeEach(() => {
   mocks.downloadAppUpdate.mockReset();
   mocks.installDownloadedAppUpdate.mockReset().mockResolvedValue(undefined);
   mocks.relaunchApp.mockReset().mockResolvedValue(undefined);
+  mocks.workspaceUnmount.mockClear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -54,6 +65,25 @@ afterEach(() => {
 });
 
 describe("App update", () => {
+  it("往返设置保留工作区草稿，设置期间仍接收运行事件", async () => {
+    await act(async () => { root?.render(<App />); });
+    const input = container!.querySelector<HTMLInputElement>('input[aria-label="测试草稿"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "尚未发送的任务");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await openSettings();
+    expect(input.closest("[hidden]")).not.toBeNull();
+    expect(mocks.workspaceUnmount).not.toHaveBeenCalled();
+    act(() => window.dispatchEvent(new Event("workspace-test-event")));
+    act(() => container!.querySelector<HTMLButtonElement>('button[aria-label="返回工作区"]')!.click());
+    expect(container!.querySelector('input[aria-label="测试草稿"]')).toBe(input);
+    expect(input.value).toBe("尚未发送的任务");
+    expect(input.closest("[hidden]")).toBeNull();
+    expect(container!.querySelector("output")!.textContent).toBe("1");
+    expect(mocks.workspaceUnmount).not.toHaveBeenCalled();
+  });
+
   it("离开设置页后继续下载并保留完成状态", async () => {
     const update = { version: "0.1.14", close: vi.fn(() => Promise.resolve()) } as unknown as Update;
     let progress: ((event: DownloadEvent) => void) | undefined;

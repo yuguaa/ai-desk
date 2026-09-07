@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Check, Download, LoaderCircle, Monitor, Moon, Plus, RefreshCw, RotateCcw, Settings, Sun, Trash2, TriangleAlert } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { ColorInput } from "@/components/ui/color-input";
@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RuntimeBadge } from "@/components/workspace/RuntimeBadge";
+import { ScreenshotSettings } from "@/components/workspace/ScreenshotSettings";
 import { mascotImageFor, Mascot } from "@/components/mascot/Mascot";
 import type { AppUpdateController, AppUpdateState } from "@/hooks/use-app-update";
 import { ACCENT_OPTIONS, FONT_OPTIONS, MASCOT_OPTIONS, MASCOT_SOURCE_OPTIONS, normalizeHexColor, normalizeMascotImageUrl, THEME_OPTIONS, type AccentColor, type AppSettings, type FontFamilyPreference, type MascotSource, type ThemePreference } from "@/lib/app-settings";
@@ -18,20 +19,27 @@ const themeIcons: Record<ThemePreference, typeof Monitor> = { system: Monitor, d
 
 export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onUpdate, onReset }: { settings: AppSettings; appUpdate: AppUpdateController; isTauri: boolean; onBack: () => void; onUpdate: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void; onReset: () => void }) {
   const [saved, setSaved] = useState(false);
+  const savedTimer = useRef<number | undefined>(undefined);
   const [customHex, setCustomHex] = useState(settings.customAccentColor);
   const immersive = isMacTauriRuntime();
   const customMascotUrl = normalizeMascotImageUrl(settings.mascotImageUrls[settings.mascotImageUrlIndex]);
   const activeMascotSource = MASCOT_SOURCE_OPTIONS.find((option) => option.value === settings.mascotSource) ?? MASCOT_SOURCE_OPTIONS[0];
 
-  useEffect(() => setCustomHex(settings.customAccentColor), [settings.customAccentColor]);
+  useEffect(() => {
+    /* 保留当前输入格式，避免三位颜色展开后打断六位颜色的输入。 */
+    setCustomHex((current) => normalizeHexColor(current) === settings.customAccentColor ? current : settings.customAccentColor);
+  }, [settings.customAccentColor]);
+
+  useEffect(() => () => window.clearTimeout(savedTimer.current), []);
 
   const change = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     onUpdate(key, value);
     setSaved(false);
   };
   const saveIndicator = () => {
+    window.clearTimeout(savedTimer.current);
     setSaved(true);
-    window.setTimeout(() => setSaved(false), 1400);
+    savedTimer.current = window.setTimeout(() => setSaved(false), 1400);
   };
 
   const updateCustomHex = (value: string) => {
@@ -149,6 +157,7 @@ export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onU
           </SettingsSection>
 
           <SettingsSection title="运行" description="本应用通过 Tauri 原生窗口连接本机 Pi。">
+            {immersive && <ScreenshotSettings />}
             <SettingsGroup>
               <SettingRow label="运行时" description="每个对话拥有独立的 Pi 进程，可同时运行"><RuntimeBadge isTauri={isTauri} compact /></SettingRow>
               <SettingRow label="配置存储" description="外观与看板娘偏好保存在本机应用存储"><span className="font-mono text-[var(--font-size-10)] text-[var(--text-tertiary)]">local</span></SettingRow>

@@ -1,3 +1,5 @@
+mod screenshot;
+
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use notify::{recommended_watcher, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -5,7 +7,7 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::{self, DirEntry, File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,6 +20,7 @@ use thiserror::Error;
 const EMPTY_TREE_HASH: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const PI_EXPECTED_VERSION: &str = env!("AI_DESK_PI_VERSION");
 const TEXT_PREVIEW_MAX_BYTES: u64 = 512 * 1024;
+const TEXT_CHUNK_MAX_BYTES: usize = 64 * 1024;
 const IMAGE_PREVIEW_MAX_BYTES: u64 = 8 * 1024 * 1024;
 const IMAGE_TYPE_SNIFF_BYTES: usize = 4100;
 const PNG_SIGNATURE: &[u8] = &[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -138,6 +141,11 @@ enum GitAction {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum FilePreview {
+    PagedText {
+        path: String,
+        size: u64,
+        version: String,
+    },
     Text {
         path: String,
         language: String,
@@ -149,6 +157,14 @@ pub enum FilePreview {
         mime_type: String,
         data: String,
     },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextFileChunk {
+    pub content: String,
+    pub next_offset: u64,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -907,7 +923,13 @@ fn value_text(value: &Value) -> Option<String> {
 
 fn message_text(entry: &Value) -> Option<String> {
     let message = entry.get("message")?;
-    value_text(message.get("content")?)
+    let content = message.get("content")?;
+    /* 纯图消息也占据首条摘要，不能被后续回复替代或保留空白标题。 */
+    value_text(content).filter(|text| !text.trim().is_empty()).or_else(|| {
+        content.as_array()?.iter()
+            .any(|part| part.get("type").and_then(Value::as_str) == Some("image"))
+            .then(|| "[图片]".to_owned())
+    })
 }
 
 fn session_name(entries: &[Value]) -> Option<String> {
@@ -1469,7 +1491,16 @@ fn read_workspace_file(cwd: String, path: String) -> Result<FilePreview, String>
         });
     }
     if metadata.len() > TEXT_PREVIEW_MAX_BYTES {
-        return Err(AppError::ReadWorkspaceFile("文件超过 512KB，暂不预览".to_owned()).into());
+        let version = text_file_version(&file_path, &metadata)?;
+        let current_path = relative_workspace_file(&root, &path)?;
+        let current_metadata = fs::metadata(&current_path)
+            .map_err(|error| AppError::ReadWorkspaceFile(error.to_string()))?;
+        ensure_text_file_version(&current_path, &current_metadata, &version)?;
+        return Ok(FilePreview::PagedText {
+            path,
+            size: metadata.len(),
+            version,
+        });
     }
     let bytes =
         fs::read(&file_path).map_err(|error| AppError::ReadWorkspaceFile(error.to_string()))?;
@@ -1480,6 +1511,98 @@ fn read_workspace_file(cwd: String, path: String) -> Result<FilePreview, String>
         path,
         language: language_for_path(&file_path),
         content,
+    })
+}
+
+fn text_file_version(path: &Path, metadata: &fs::Metadata) -> Result<String, AppError> {
+    let modified = metadata
+        .modified()
+        .map_err(|error| AppError::ReadWorkspaceFile(error.to_string()))?
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| AppError::ReadWorkspaceFile(error.to_string()))?
+        .as_nanos();
+    /* 路径和创建时间绑定文件身份；Unix 额外检查 inode 及变更时间，
+     * 防止同尺寸覆盖、原子替换或恢复 mtime 后混入其他版本。 */
+    let identity = format!("{:?}:{:?}", path, metadata.created().ok());
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt;
+        format!(
+            "{identity}:{}:{}:{}:{}",
+            metadata.dev(),
+            metadata.ino(),
+            metadata.ctime(),
+            metadata.ctime_nsec()
+        )
+    };
+    Ok(format!("{}:{modified}:{identity}", metadata.len()))
+}
+
+fn ensure_text_file_version(
+    path: &Path,
+    metadata: &fs::Metadata,
+    version: &str,
+) -> Result<(), AppError> {
+    if !metadata.is_file() || text_file_version(path, metadata)? != version {
+        return Err(AppError::ReadWorkspaceFile(
+            "文件已改变，请重新打开".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn read_workspace_file_chunk(
+    cwd: String,
+    path: String,
+    offset: u64,
+    version: String,
+) -> Result<TextFileChunk, String> {
+    let root = workspace_root(&cwd)?;
+    let file_path = relative_workspace_file(&root, &path)?;
+    let mut file =
+        File::open(&file_path).map_err(|error| AppError::ReadWorkspaceFile(error.to_string()))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| AppError::ReadWorkspaceFile(error.to_string()))?;
+    ensure_text_file_version(&file_path, &metadata, &version)?;
+    let size = metadata.len();
+    if offset > size {
+        return Err(AppError::ReadWorkspaceFile("文本偏移超出文件范围".to_owned()).into());
+    }
+
+    /* 按字节定位且分配固定上限，不依赖换行；跨页字符留给下一次读取。 */
+    let length = (size - offset).min(TEXT_CHUNK_MAX_BYTES as u64) as usize;
+    let mut bytes = vec![0; length];
+    let read_result = file
+        .seek(SeekFrom::Start(offset))
+        .and_then(|_| file.read_exact(&mut bytes));
+    let after = file
+        .metadata()
+        .map_err(|error| AppError::ReadWorkspaceFile(error.to_string()))?;
+    ensure_text_file_version(&file_path, &after, &version)?;
+    /* 同时检查打开的句柄和当前路径，识别读取期间的文件替换与链接改向。 */
+    let current_path = relative_workspace_file(&root, &path)?;
+    let current_metadata = fs::metadata(&current_path)
+        .map_err(|error| AppError::ReadWorkspaceFile(error.to_string()))?;
+    ensure_text_file_version(&current_path, &current_metadata, &version)?;
+    read_result.map_err(|error| AppError::ReadWorkspaceFile(error.to_string()))?;
+
+    let valid_length = match std::str::from_utf8(&bytes) {
+        Ok(_) => bytes.len(),
+        Err(error) if error.error_len().is_none() && offset + (length as u64) < size => {
+            error.valid_up_to()
+        }
+        Err(_) => {
+            return Err(AppError::ReadWorkspaceFile("文本不是有效的 UTF-8".to_owned()).into())
+        }
+    };
+    bytes.truncate(valid_length);
+    let content = String::from_utf8(bytes)
+        .map_err(|_| AppError::ReadWorkspaceFile("文本不是有效的 UTF-8".to_owned()))?;
+    Ok(TextFileChunk {
+        content,
+        next_offset: offset + valid_length as u64,
+        size,
     })
 }
 
@@ -2237,6 +2360,7 @@ mod git_commands {
     blocking_command!(get_git_status(cwd: String) -> GitStatus);
     blocking_command!(list_workspace_files(cwd: String) -> Vec<WorkspaceFile>);
     blocking_command!(read_workspace_file(cwd: String, path: String) -> FilePreview);
+    blocking_command!(read_workspace_file_chunk(cwd: String, path: String, offset: u64, version: String) -> TextFileChunk);
     blocking_command!(get_git_diff(cwd: String, path: String) -> String);
     blocking_command!(run_git_action(cwd: String, action: GitAction) -> ());
     blocking_command!(capture_git_snapshot(cwd: String) -> String);
@@ -2363,6 +2487,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            screenshot::setup(app.handle())?;
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())
@@ -2372,6 +2497,10 @@ pub fn run() {
         .manage(PiProcessRegistry::default())
         .manage(WorkspaceWatcherState::default())
         .invoke_handler(tauri::generate_handler![
+            screenshot::get_screenshot_status,
+            screenshot::request_screenshot_permission,
+            screenshot::set_screenshot_shortcut_enabled,
+            screenshot::capture_frontmost_window,
             list_pi_projects,
             read_pi_session,
             rename_pi_session,
@@ -2382,6 +2511,7 @@ pub fn run() {
             stop_pi_process,
             git_commands::list_workspace_files,
             git_commands::read_workspace_file,
+            git_commands::read_workspace_file_chunk,
             git_commands::get_git_status,
             git_commands::get_git_diff,
             git_commands::run_git_action,
@@ -2530,6 +2660,199 @@ mod tests {
     }
 
     #[test]
+    fn paged_text_should_reassemble_large_utf8_file() {
+        let workspace = TestDir::new("paged-text");
+        let content = "中文分页\n".repeat(50_000);
+        assert!(content.len() as u64 > TEXT_PREVIEW_MAX_BYTES);
+        write_file(workspace.path(), "large.txt", &content);
+        let cwd = workspace.path().to_string_lossy().into_owned();
+        let preview = read_workspace_file(cwd.clone(), "large.txt".to_owned()).unwrap();
+        let json = serde_json::to_value(&preview).unwrap();
+        assert_eq!(json["kind"], "pagedText");
+        assert_eq!(json["path"], "large.txt");
+        assert_eq!(json["size"], content.len() as u64);
+        let FilePreview::PagedText { version, .. } = preview else {
+            panic!("expected paged text");
+        };
+        let mut result = String::new();
+        let mut offset = 0;
+        while offset < content.len() as u64 {
+            let chunk = read_workspace_file_chunk(
+                cwd.clone(),
+                "large.txt".to_owned(),
+                offset,
+                version.clone(),
+            )
+            .unwrap();
+            assert!(chunk.content.len() <= TEXT_CHUNK_MAX_BYTES);
+            assert!(chunk.next_offset > offset);
+            assert_eq!(chunk.next_offset, offset + chunk.content.len() as u64);
+            assert_eq!(chunk.size, content.len() as u64);
+            offset = chunk.next_offset;
+            result.push_str(&chunk.content);
+        }
+        assert_eq!(result, content);
+    }
+
+    fn text_chunk(workspace: &TestDir, offset: u64) -> Result<TextFileChunk, String> {
+        let path = workspace.path().join("text.txt");
+        let version = text_file_version(&path, &fs::metadata(&path).unwrap()).unwrap();
+        read_workspace_file_chunk(
+            workspace.path().to_string_lossy().into_owned(),
+            "text.txt".to_owned(),
+            offset,
+            version,
+        )
+    }
+
+    #[test]
+    fn paged_text_should_preserve_partial_multibyte_characters() {
+        let workspace = TestDir::new("text-boundary");
+        for character in ["中", "𠮷"] {
+            for tail in 1..character.len() {
+                let prefix = "a".repeat(TEXT_CHUNK_MAX_BYTES - tail);
+                let content = format!("{prefix}{character}结束");
+                write_file(workspace.path(), "text.txt", &content);
+                let first = text_chunk(&workspace, 0).unwrap();
+                assert_eq!(first.content, prefix);
+                assert_eq!(first.next_offset, prefix.len() as u64);
+                let second = text_chunk(&workspace, first.next_offset).unwrap();
+                assert_eq!(second.content, format!("{character}结束"));
+                assert_eq!(second.next_offset, content.len() as u64);
+            }
+        }
+    }
+
+    #[test]
+    fn paged_text_should_handle_eof_empty_and_invalid_offsets() {
+        let workspace = TestDir::new("text-eof");
+        for content in ["", "中文"] {
+            write_file(workspace.path(), "text.txt", content);
+            let size = content.len() as u64;
+            let chunk = text_chunk(&workspace, size).unwrap();
+            assert!(chunk.content.is_empty());
+            assert_eq!(chunk.next_offset, size);
+            assert_eq!(chunk.size, size);
+            assert_eq!(
+                serde_json::to_value(&chunk).unwrap(),
+                serde_json::json!({
+                    "content": "", "nextOffset": size, "size": size,
+                })
+            );
+            assert!(text_chunk(&workspace, size + 1)
+                .unwrap_err()
+                .contains("偏移"));
+            assert!(text_chunk(&workspace, u64::MAX).is_err());
+        }
+        assert!(text_chunk(&workspace, 1).unwrap_err().contains("UTF-8"));
+    }
+
+    #[test]
+    fn paged_text_should_reject_invalid_utf8_including_truncated_eof() {
+        let workspace = TestDir::new("text-invalid");
+        for bytes in [vec![b'a', 0xff], vec![0xe4, 0xb8], vec![0xc0, 0x80]] {
+            fs::write(workspace.path().join("text.txt"), bytes).unwrap();
+            assert!(text_chunk(&workspace, 0).unwrap_err().contains("UTF-8"));
+        }
+        let mut bytes = vec![b'a'; TEXT_CHUNK_MAX_BYTES - 1];
+        bytes.extend_from_slice(&[0xe4, 0xff]);
+        fs::write(workspace.path().join("text.txt"), bytes).unwrap();
+        let first = text_chunk(&workspace, 0).unwrap();
+        assert_eq!(first.next_offset, (TEXT_CHUNK_MAX_BYTES - 1) as u64);
+        assert!(text_chunk(&workspace, first.next_offset)
+            .unwrap_err()
+            .contains("UTF-8"));
+    }
+
+    #[test]
+    fn paged_text_should_reject_stale_version_after_resize_or_replacement() {
+        let workspace = TestDir::new("text-version");
+        let path = workspace.path().join("text.txt");
+        let cwd = workspace.path().to_string_lossy().into_owned();
+        for replacement in ["changed size", "other"] {
+            write_file(workspace.path(), "text.txt", "hello");
+            let original = fs::metadata(&path).unwrap();
+            let version = text_file_version(&path, &original).unwrap();
+            if replacement == "other" {
+                let new_path = workspace.path().join("replacement.txt");
+                fs::write(&new_path, replacement).unwrap();
+                File::options()
+                    .write(true)
+                    .open(&new_path)
+                    .unwrap()
+                    .set_times(fs::FileTimes::new().set_modified(original.modified().unwrap()))
+                    .unwrap();
+                fs::rename(new_path, &path).unwrap();
+            } else {
+                fs::write(&path, replacement).unwrap();
+            }
+            assert!(
+                read_workspace_file_chunk(cwd.clone(), "text.txt".to_owned(), 0, version,)
+                    .unwrap_err()
+                    .contains("文件已改变")
+            );
+        }
+    }
+
+    #[test]
+    fn paged_text_should_reject_same_size_rewrite() {
+        let workspace = TestDir::new("text-same-size");
+        let path = workspace.path().join("text.txt");
+        write_file(workspace.path(), "text.txt", "first");
+        let metadata = fs::metadata(&path).unwrap();
+        let version = text_file_version(&path, &metadata).unwrap();
+        fs::write(&path, "other").unwrap();
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(metadata.modified().unwrap() + Duration::from_secs(1)),
+            )
+            .unwrap();
+        assert!(read_workspace_file_chunk(
+            workspace.path().to_string_lossy().into_owned(),
+            "text.txt".to_owned(),
+            0,
+            version,
+        )
+        .unwrap_err()
+        .contains("文件已改变"));
+    }
+
+    #[test]
+    fn paged_text_should_bound_reads_for_long_single_line() {
+        let workspace = TestDir::new("text-long-line");
+        let content = "x".repeat(2 * 1024 * 1024 + 17);
+        write_file(workspace.path(), "text.txt", &content);
+        for offset in [0, TEXT_CHUNK_MAX_BYTES as u64, content.len() as u64 - 17] {
+            let chunk = text_chunk(&workspace, offset).unwrap();
+            let expected = (content.len() - offset as usize).min(TEXT_CHUNK_MAX_BYTES);
+            assert_eq!(chunk.content.len(), expected);
+            assert_eq!(chunk.next_offset, offset + expected as u64);
+        }
+    }
+
+    #[test]
+    fn paged_text_should_keep_small_text_preview_at_threshold() {
+        let workspace = TestDir::new("text-threshold");
+        let content = "a".repeat(TEXT_PREVIEW_MAX_BYTES as usize);
+        write_file(workspace.path(), "text.txt", &content);
+        let FilePreview::Text {
+            content: actual, ..
+        } = read_workspace_file(
+            workspace.path().to_string_lossy().into_owned(),
+            "text.txt".to_owned(),
+        )
+        .unwrap()
+        else {
+            panic!("expected small text preview")
+        };
+        assert_eq!(actual, content);
+    }
+
+    #[test]
     fn read_workspace_file_should_preview_png() {
         let workspace = TestDir::new("image-preview");
         let png = BASE64
@@ -2557,7 +2880,7 @@ mod tests {
                 assert_eq!(mime_type, "image/png");
                 assert_eq!(data, BASE64.encode(&png));
             }
-            FilePreview::Text { .. } => panic!("expected image preview"),
+            _ => panic!("expected image preview"),
         }
     }
 
@@ -2675,6 +2998,44 @@ mod tests {
         }
         for relative in ["packages/app/src/index.ts", ".git/index", ".git/refs/heads/main"] {
             assert!(watch_path_relevant(root, &root.join(relative)), "{relative}");
+        }
+    }
+
+    #[test]
+    fn streamed_project_summaries_should_describe_image_only_messages() {
+        for content in [
+            serde_json::json!([{"type":"image", "data":"synthetic-image", "mimeType":"image/png"}]),
+            serde_json::json!([{"type":"text", "text":""}, {"type":"image", "data":"synthetic-image", "mimeType":"image/png"}]),
+            serde_json::json!([{"type":"text", "text":"  \n "}, {"type":"image", "data":"synthetic-image", "mimeType":"image/png"}]),
+        ] {
+            let root = TestDir::new("image-session-summary");
+            let file = root.path().join("session.jsonl");
+            let mut output = File::create(&file).unwrap();
+            for entry in [
+                serde_json::json!({"type":"session", "id":"image-session", "cwd":"/workspace"}),
+                serde_json::json!({"type":"message", "message":{"role":"user", "content":content}}),
+                serde_json::json!({"type":"message", "message":{"role":"assistant", "content":"图片分析结果"}}),
+            ] {
+                writeln!(output, "{entry}").unwrap();
+            }
+            let projects = list_pi_projects_at(root.path()).unwrap();
+            let summary = &projects[0].conversations[0];
+            assert_eq!(summary.title, "[图片]");
+            assert_eq!(summary.preview, "[图片]");
+            assert_eq!(summary.message_count, 2);
+        }
+    }
+
+    #[test]
+    fn message_summary_should_preserve_text_and_ignore_empty_content() {
+        for content in [
+            serde_json::json!("检查图片"),
+            serde_json::json!([{"type":"image", "data":"synthetic-image"}, {"type":"text", "text":"检查图片"}]),
+        ] {
+            assert_eq!(message_text(&serde_json::json!({"message":{"content":content}})).as_deref(), Some("检查图片"));
+        }
+        for content in [serde_json::json!(""), serde_json::json!("  \n "), serde_json::json!([]), serde_json::json!([{"type":"text", "text":" "}])] {
+            assert_eq!(message_text(&serde_json::json!({"message":{"content":content}})), None);
         }
     }
 

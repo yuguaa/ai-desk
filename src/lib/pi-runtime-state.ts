@@ -148,6 +148,7 @@ export function normalizePiModel(value: unknown): PiModel | null {
     provider: model.provider,
     name: typeof model.name === "string" ? model.name : undefined,
     reasoning: typeof model.reasoning === "boolean" ? model.reasoning : undefined,
+    input: Array.isArray(model.input) ? model.input.filter((input): input is "text" | "image" => input === "text" || input === "image") : undefined,
     contextWindow: isPositiveFiniteNumber(model.contextWindow) ? model.contextWindow : undefined,
   };
 }

@@ -1,7 +1,10 @@
+import type { ImageAttachment } from "@/lib/image-attachments";
+
 export type QueuedConversationTurn = {
   id: string;
   conversationId: string;
   prompt: string;
+  images?: ImageAttachment[];
   createdAt: number;
 };
 
