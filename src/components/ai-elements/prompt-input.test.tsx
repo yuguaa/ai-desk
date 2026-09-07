@@ -406,11 +406,18 @@ describe("PromptInput", () => {
     };
     const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
     Object.defineProperty(dragStart, "dataTransfer", { value: dataTransfer });
+    const dragOver = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperty(dragOver, "dataTransfer", { value: dataTransfer });
     const drop = new Event("drop", { bubbles: true, cancelable: true });
     Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
 
     await act(async () => {
       container!.querySelector<HTMLButtonElement>('button[aria-label="调整队列任务：任务二"]')?.dispatchEvent(dragStart);
+    });
+    await act(async () => {
+      container!.querySelector<HTMLElement>('[data-queue-id="q1"]')?.dispatchEvent(dragOver);
+    });
+    await act(async () => {
       container!.querySelector<HTMLElement>('[data-queue-id="q1"]')?.dispatchEvent(drop);
     });
 

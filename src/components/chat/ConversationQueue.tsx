@@ -1,10 +1,16 @@
-import { useState, type DragEvent, type KeyboardEvent } from "react";
+import { useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
 import { GripVertical, LayoutList, Pencil, X } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
-import type { QueuedConversationTurn } from "@/lib/conversation-queue";
+import { reorderConversationQueue, type QueuedConversationTurn } from "@/lib/conversation-queue";
 
 export function ConversationQueue({ turns, editingTurnId, onReorder, onRemove, onSteer, onEdit }: { turns: QueuedConversationTurn[]; editingTurnId?: string | null; onReorder?: (sourceId: string, targetId: string) => void; onRemove?: (turnId: string) => void; onSteer?: (turnId: string) => void; onEdit?: (turnId: string) => void }) {
   const [draggingId, setDraggingId] = useState("");
+  const [dragOverId, setDragOverId] = useState("");
+  /* 拖拽悬停到目标项时实时预览顺序，让其他项即时让位。 */
+  const orderedTurns = useMemo(() => {
+    if (!draggingId || !dragOverId || draggingId === dragOverId) return turns;
+    return reorderConversationQueue(turns, draggingId, dragOverId);
+  }, [turns, draggingId, dragOverId]);
   if (!turns.length) return null;
   const queueLocked = Boolean(editingTurnId);
 
@@ -12,13 +18,17 @@ export function ConversationQueue({ turns, editingTurnId, onReorder, onRemove, o
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", turnId);
     setDraggingId(turnId);
+    setDragOverId("");
   };
 
-  const dropTurn = (event: DragEvent<HTMLDivElement>, targetId: string) => {
+  const dropTurn = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    /* drop 目标以最后一次悬停的真实项为准：预览重排后鼠标可能落在拖拽项自己身上。 */
     const sourceId = event.dataTransfer.getData("text/plain") || draggingId;
+    const targetId = dragOverId;
     setDraggingId("");
-    if (sourceId && sourceId !== targetId) onReorder?.(sourceId, targetId);
+    setDragOverId("");
+    if (sourceId && targetId && sourceId !== targetId) onReorder?.(sourceId, targetId);
   };
 
   const moveByKeyboard = (event: KeyboardEvent<HTMLButtonElement>, turnIndex: number) => {
@@ -36,16 +46,19 @@ export function ConversationQueue({ turns, editingTurnId, onReorder, onRemove, o
       <span>待执行队列</span>
       <span className="tabular-nums">{turns.length}</span>
     </div>
-    <div className="max-h-28 space-y-1 overflow-y-auto" role="list" aria-label="待执行任务">
-      {turns.map((turn, turnIndex) => <div
+    <div className="max-h-28 space-y-1 overflow-y-auto" role="list" aria-label="待执行任务" onDrop={dropTurn}>
+      {orderedTurns.map((turn, turnIndex) => <div
         key={turn.id}
         role="listitem"
         data-queue-id={turn.id}
         data-editing={editingTurnId === turn.id ? "true" : "false"}
         data-dragging={draggingId === turn.id ? "true" : "false"}
-        className="flex min-h-8 items-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--bg-workspace)] px-1.5 text-[var(--font-size-11-5)] shadow-[inset_0_0_0_1px_var(--border-subtle)] transition-opacity data-[dragging=true]:opacity-45 data-[editing=true]:bg-[var(--accent-tint-soft)]"
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => dropTurn(event, turn.id)}
+        className="flex min-h-8 items-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--bg-workspace)] px-1.5 text-[var(--font-size-11-5)] shadow-[inset_0_0_0_1px_var(--border-subtle)] transition-[opacity,box-shadow,background-color] duration-[var(--motion-fast)] data-[dragging=true]:bg-[var(--accent-tint-soft)] data-[dragging=true]:shadow-[0_0_0_1px_var(--accent),0_2px_8px_rgb(0_0_0_/_0.3)] data-[editing=true]:bg-[var(--accent-tint-soft)]"
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (draggingId && turn.id !== draggingId) setDragOverId(turn.id);
+        }}
+        onDrop={dropTurn}
       >
         <Button
           type="button"
@@ -57,7 +70,7 @@ export function ConversationQueue({ turns, editingTurnId, onReorder, onRemove, o
           title="拖动排序，或使用上下方向键"
           className="size-6 cursor-grab touch-none text-[var(--text-tertiary)] active:cursor-grabbing"
           onDragStart={(event) => startDrag(event, turn.id)}
-          onDragEnd={() => setDraggingId("")}
+          onDragEnd={() => { setDraggingId(""); setDragOverId(""); }}
           onKeyDown={(event) => moveByKeyboard(event, turnIndex)}
         ><GripVertical size={13} /></Button>
         {!!turn.images?.length && <>
