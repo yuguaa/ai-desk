@@ -108,6 +108,7 @@ export function TerminalContent({ className, children, onScroll, ...props }: Ter
 
   return (
     <div data-slot="terminal-content" className={cn("flex max-h-64 flex-col-reverse overflow-auto px-2.5 py-2 font-mono text-[var(--font-size-11)] leading-5 text-[var(--text-secondary)]", className)} onScroll={handleScroll} ref={containerRef} {...props}>
+      <div data-slot="terminal-bottom-placeholder" className="flex-1 shrink-0" />
       {children ?? <pre className="min-w-max shrink-0 whitespace-pre"><AnsiComponent useClasses>{output}</AnsiComponent>{isStreaming ? <span aria-hidden="true" className="ml-0.5 inline-block h-3.5 w-1.5 bg-[var(--text-primary)] motion-safe:animate-pulse" /> : null}</pre>}
     </div>
   );

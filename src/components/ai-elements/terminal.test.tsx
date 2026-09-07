@@ -21,6 +21,21 @@ function createContainer() {
 }
 
 describe("Terminal", () => {
+  it("反向布局包含底部弹性占位以将文本顶到上方", async () => {
+    createContainer();
+
+    await act(async () => {
+      root?.render(<Terminal output="pnpm test" />);
+      await Promise.resolve();
+    });
+
+    const content = container?.querySelector<HTMLElement>('[data-slot="terminal-content"]');
+    const placeholder = container?.querySelector<HTMLElement>('[data-slot="terminal-bottom-placeholder"]');
+    expect(content?.className).toContain("flex-col-reverse");
+    expect(placeholder?.className).toContain("flex-1");
+    expect(placeholder?.className).toContain("shrink-0");
+  });
+
   it("用户查看历史输出时不强制滚回底部", async () => {
     createContainer();
 

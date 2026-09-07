@@ -33,6 +33,7 @@ describe("Reasoning", () => {
     expect(html).toContain("max-h-64");
     expect(html).toContain("flex-col-reverse");
     expect(html).toContain("overflow-y-auto");
+    expect(html).toContain('data-slot="reasoning-bottom-placeholder"');
   });
 
   it("允许调用方显式设置为默认折叠", () => {
