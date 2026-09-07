@@ -198,6 +198,11 @@ describe("WorkspaceSidebar", () => {
     const removeProjectButton = container.querySelector<HTMLButtonElement>('button[aria-label="从 AI Desk 移除 demo"]');
     expect(removeProjectButton?.parentElement?.className).toContain("absolute");
     act(() => removeProjectButton?.click());
+    expect(onRemoveProject).not.toHaveBeenCalled();
+
+    const confirmRemoveButton = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "移除项目");
+    expect(confirmRemoveButton).not.toBeUndefined();
+    act(() => confirmRemoveButton?.click());
     expect(onRemoveProject).toHaveBeenCalledWith("/code/demo");
 
     const conversation = container.querySelector<HTMLElement>('[data-slot="context-menu-trigger"]');

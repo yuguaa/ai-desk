@@ -3,6 +3,7 @@ import { Archive, ChevronDown, FolderClosed, FolderOpen, FolderPlus, MessageSqua
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { SidebarIconButton } from "@/components/workspace/SidebarIconButton";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ projects, conve
   onSelectConversation: (conversation: ConversationRecord) => void;
 }) {
   const [visibleConversationCounts, setVisibleConversationCounts] = useState<Record<string, number>>({});
+  const [pendingRemoveProject, setPendingRemoveProject] = useState<Project | null>(null);
   const conversationsByProject = useMemo(() => {
     const groups = new Map<string, ConversationRecord[]>();
     for (const conversation of conversations) {
@@ -45,6 +47,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ projects, conve
   }, [conversations]);
 
   return (
+    <>
     <aside className="flex h-full w-full min-w-0 flex-col bg-[var(--bg-sidebar)]">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-[var(--container-padding-tight)]">
         <p className="text-[var(--font-size-11)] font-medium uppercase tracking-[0.06em] text-[var(--text-tertiary)]">工作区</p>
@@ -78,7 +81,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ projects, conve
                   </Button>
                   <div className="invisible pointer-events-none absolute inset-y-0 right-0 z-10 flex items-center bg-[var(--bg-hover)] pr-1 opacity-0 transition-opacity duration-[var(--motion-fast)] group-hover/project:visible group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:visible group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100">
                     <SidebarIconButton label={`在 ${project.name} 中新建对话`} className="size-5" onClick={() => onNewConversation(project.id)}><Plus size={13} /></SidebarIconButton>
-                    <SidebarIconButton label={isBusy ? `${project.name} 运行中，无法移除` : `从 AI Desk 移除 ${project.name}`} className="size-5" disabled={isBusy} onClick={() => onRemoveProject(project.id)}><X size={12} /></SidebarIconButton>
+                    <SidebarIconButton label={isBusy ? `${project.name} 运行中，无法移除` : `从 AI Desk 移除 ${project.name}`} className="size-5" disabled={isBusy} onClick={() => setPendingRemoveProject(project)}><X size={12} /></SidebarIconButton>
                   </div>
                 </div>
                 {!isCollapsed && (
@@ -104,6 +107,17 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebar({ projects, conve
         <Button type="button" variant="ghost" className="h-7 w-full justify-start gap-2 px-2 text-[var(--font-size-12)] font-normal" onClick={onOpenSettings}><Settings size={14} />设置</Button>
       </div>
     </aside>
+    <Dialog open={pendingRemoveProject !== null} onOpenChange={(open) => { if (!open) setPendingRemoveProject(null); }}>
+      <DialogContent aria-describedby={undefined} className="max-w-[360px]">
+        <DialogTitle>移除项目</DialogTitle>
+        <p className="text-[var(--font-size-11-5)] leading-relaxed text-[var(--text-secondary)]">从 AI Desk 移除 <span className="font-medium text-[var(--text-primary)]">{pendingRemoveProject?.name}</span>？该项目的会话将被清理，磁盘文件不受影响。</p>
+        <div className="flex justify-end gap-2">
+          <DialogClose asChild><Button type="button" variant="outline" size="sm">取消</Button></DialogClose>
+          <Button type="button" variant="destructive" size="sm" onClick={() => { if (pendingRemoveProject) onRemoveProject(pendingRemoveProject.id); setPendingRemoveProject(null); }}>移除项目</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 });
 
