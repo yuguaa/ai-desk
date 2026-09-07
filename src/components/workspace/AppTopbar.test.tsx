@@ -22,13 +22,22 @@ describe("AppTopbar", () => {
     expect(html).not.toContain("<img");
   });
 
-  it.each([true, false])("所有窗口状态统一使用 32px 高度（macOS：%s）", (mac) => {
+  it.each([
+    [true, "data-[immersive=true]:h-[52px]"],
+    [false, null],
+  ])("macOS 使用 52px 沉浸式标题栏，其他平台使用 40px（macOS：%s）", (mac, immersiveClass) => {
     windowState.mac = mac;
     const container = document.createElement("div");
     container.innerHTML = renderToStaticMarkup(<AppTopbar />);
     const header = container.querySelector("header");
-    expect(header?.classList.contains("h-8")).toBe(true);
-    expect(header?.className).not.toMatch(/:h-|h-10|52px/);
+    expect(header?.classList.contains("h-10")).toBe(true);
+    if (immersiveClass) {
+      expect(header?.className).toContain(immersiveClass);
+      expect(header?.className).toContain("data-[immersive=true]:pl-[76px]");
+      expect(header?.getAttribute("data-immersive")).toBe("true");
+    } else {
+      expect(header?.getAttribute("data-immersive")).toBe("false");
+    }
     expect(header?.hasAttribute("data-fullscreen")).toBe(false);
     expect(header?.textContent).toContain("AI DESK");
   });
