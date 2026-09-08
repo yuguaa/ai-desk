@@ -2556,6 +2556,9 @@ pub fn run() {
                 }
             }
         }
+        /* 非 macOS 平台无 Reopen 事件，保留引用避免未使用告警。 */
+        #[cfg(not(target_os = "macos"))]
+        let _ = &app_handle;
     });
 }
 
