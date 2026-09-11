@@ -31,6 +31,8 @@ describe("GoalStatus", () => {
     expect(html).toContain("修复滚动问题");
     expect(html).toContain(label);
     expect(html).toContain("目标模式");
+    /* 横幅宽度自适应内容，不撑满输入栏 */
+    expect(html).toContain("w-fit");
   });
 
   it("没有目标时不渲染", () => {
