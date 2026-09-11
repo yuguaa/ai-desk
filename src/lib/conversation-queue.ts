@@ -1,10 +1,10 @@
-import type { ImageAttachment } from "@/lib/image-attachments";
+import type { Attachment } from "@/lib/attachments";
 
 export type QueuedConversationTurn = {
   id: string;
   conversationId: string;
   prompt: string;
-  images?: ImageAttachment[];
+  attachments?: Attachment[];
   createdAt: number;
 };
 

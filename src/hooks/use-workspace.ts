@@ -1,6 +1,6 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import { useImageDrafts } from "@/hooks/use-image-drafts";
-import { imageContents, type ImageAttachment } from "@/lib/image-attachments";
+import { useAttachments } from "@/hooks/use-attachments";
+import { appendFileContents, imageContents, isImageAttachment, type Attachment, type FileAttachment } from "@/lib/attachments";
 import { isTauriRuntime, listPiProjects, readPiSession, renamePiSession } from "@/lib/pi-bridge";
 import { reorderConversationQueue, type QueuedConversationTurn } from "@/lib/conversation-queue";
 import {
@@ -18,6 +18,7 @@ import {
 import {
   applyPiError,
   applyPiExtensionUiRequest,
+  applyPiGoalEvent,
   applyPiProcessStderr,
   applyPiRpcResponse,
   clearActiveExtensionRequest,
@@ -33,12 +34,12 @@ import {
 } from "@/lib/workspace-data";
 import { pickProjectDirectory } from "@/lib/workspace-bridge";
 import { addProjectPreference, archiveConversationPreference, isProjectTrusted, loadWorkspacePreferences, normalizeProjectPath, removeProjectPreference, saveWorkspacePreferences, setConversationPinnedPreference, setProjectCollapsedPreference, setProjectTrustedPreference } from "@/lib/workspace-preferences";
-import { formatMessageTime, projectPiSession, textFromContent, type TimelineItem } from "@/lib/pi-session";
+import { formatMessageTime, goalFromSessionEntries, projectPiSession, textFromContent, type TimelineItem } from "@/lib/pi-session";
 import type { ConversationRecord, Project } from "@/types/workspace";
 
 type TimelineMap = Record<string, TimelineItem[]>;
 type ProcessMap = Record<string, PiProcessStatus>;
-export type SubmittedConversationTurn = { conversationId: string; turnIndex: number; prompt: string; images?: ImageAttachment[] };
+export type SubmittedConversationTurn = { conversationId: string; turnIndex: number; prompt: string; attachments?: Attachment[] };
 type TurnPreparation = (turn: SubmittedConversationTurn) => Promise<unknown>;
 type EditingQueuedTurn = { conversationId: string; turnId: string };
 type PendingManualSteer = { turn: QueuedConversationTurn; beforeRun?: TurnPreparation };
@@ -78,7 +79,7 @@ export function useWorkspace() {
   const [activeConversationId, setActiveConversationId] = useState("");
   const [timelines, setTimelines] = useState<TimelineMap>({});
   const [draft, setDraftState] = useState("");
-  const imageDraft = useImageDrafts(activeConversationId || `project:${activeProjectId}`);
+  const attachmentDraft = useAttachments(activeConversationId || `project:${activeProjectId}`);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
   const [processes, setProcesses] = useState<ProcessMap>({});
@@ -308,9 +309,11 @@ export function useWorkspace() {
       .then((session) => {
         if (requestId !== sessionLoadRef.current || activeConversationRef.current !== conversation.id) return;
         const items = session ? projectPiSession(session.activeEntries) : [];
+        const goal = session ? goalFromSessionEntries(session.activeEntries) : null;
         /* 标题与选中状态先更新，历史消息作为低优先级更新一起结束 loading。 */
         startTransition(() => {
           setTimelines((current) => ({ ...current, [conversation.id]: items }));
+          setConversationState(conversation.id, (state) => ({ ...(state ?? EMPTY_PI_CONVERSATION_STATE), goal }));
           setLoadingConversationId(null);
         });
       })
@@ -601,6 +604,13 @@ export function useWorkspace() {
       return;
     }
 
+    if (role === "custom") {
+      if (String(message.customType ?? "") === "pi-goal-event") {
+        setConversationState(conversationId, (state) => applyPiGoalEvent(state, message));
+      }
+      return;
+    }
+
     if (role === "assistant") {
       const stream = streamMessagesRef.current.get(conversationId);
       const messageKey = stream?.messageKey ?? (typeof message.id === "string" ? message.id : createPiCommandId("message"));
@@ -868,7 +878,7 @@ export function useWorkspace() {
     leaveQueuedTurnEditing("");
     if (previousConversationId) removeIdleProcess(previousConversationId).catch(() => undefined);
     const id = createPiCommandId("conversation");
-    imageDraft.move(`project:${project.id}`, id);
+    attachmentDraft.move(`project:${project.id}`, id);
     const conversation = { id, projectId: project.id, title: "新对话", preview: "", time: "刚刚", modifiedAt: new Date().toISOString() };
     const nextConversations = sortConversationsByPinned([conversation, ...conversationsRef.current], workspacePreferencesRef.current.pinnedConversationIds);
     conversationsRef.current = nextConversations;
@@ -919,7 +929,7 @@ export function useWorkspace() {
       pausedConversationQueuesRef.current.delete(conversationId);
       conversationExecutionEpochRef.current.delete(conversationId);
       conversationDraftsRef.current.delete(conversationId);
-      imageDraft.clear(conversationId);
+      attachmentDraft.clear(conversationId);
       (queuedTurnsRef.current[conversationId] ?? []).forEach((turn) => queuedTurnPreparationsRef.current.delete(turn.id));
     });
     [...toolCallsRef.current.keys()].filter((key) => conversationIds.some((conversationId) => key.startsWith(`${conversationId}:`))).forEach((key) => toolCallsRef.current.delete(key));
@@ -950,7 +960,7 @@ export function useWorkspace() {
       conversationsRef.current = nextConversations;
       saveWorkspacePreferences(nextPreferences);
       clearConversationWorkspaceState(conversationIds);
-      imageDraft.clear(`project:${projectId}`);
+      attachmentDraft.clear(`project:${projectId}`);
       setProjects(nextProjects);
       setConversations(nextConversations);
 
@@ -1044,15 +1054,18 @@ export function useWorkspace() {
     setConversations(nextConversations);
   }
 
-  function executeConversationTurn(conversation: ConversationRecord, text: string, beforeRun: TurnPreparation | undefined, commandType: "prompt" | "steer", images: ImageAttachment[] = []) {
+  function executeConversationTurn(conversation: ConversationRecord, text: string, beforeRun: TurnPreparation | undefined, commandType: "prompt" | "steer", attachments: Attachment[] = []) {
+    const images = attachments.filter(isImageAttachment);
+    const files = attachments.filter((attachment): attachment is FileAttachment => attachment.type === "file");
+    const message = appendFileContents(text, files);
     const messageId = Date.now();
     const turnIndex = (timelinesRef.current[conversation.id] ?? []).filter((item) => item.type === "user").length;
     const executionEpoch = conversationExecutionEpochRef.current.get(conversation.id) ?? 0;
     const ensureExecutionActive = () => {
       if ((conversationExecutionEpochRef.current.get(conversation.id) ?? 0) !== executionEpoch) throw CANCELLED_CONVERSATION_EXECUTION;
     };
-    const submittedTurn = { conversationId: conversation.id, turnIndex, prompt: text, ...(images.length ? { images } : {}) };
-    appendTimeline(conversation.id, { id: `u-${messageId}-${turnIndex}`, type: "user", text, ...(images.length ? { images } : {}), time: formatMessageTime(Date.now()) });
+    const submittedTurn = { conversationId: conversation.id, turnIndex, prompt: text, ...(attachments.length ? { attachments } : {}) };
+    appendTimeline(conversation.id, { id: `u-${messageId}-${turnIndex}`, type: "user", text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}), time: formatMessageTime(Date.now()) });
     setActiveTurnIndex(conversation.id, turnIndex);
 
     if (!runtimeIsTauri) {
@@ -1077,15 +1090,15 @@ export function useWorkspace() {
       })
       .then(() => {
         ensureExecutionActive();
-        return sendRpcCommand(conversation.id, { type: commandType, message: text, ...(images.length ? { images: imageContents(images) } : {}) });
+        return sendRpcCommand(conversation.id, { type: commandType, message, ...(images.length ? { images: imageContents(images) } : {}) });
       })
       .then(() => undefined)
       .catch((reason) => {
         if (reason === CANCELLED_CONVERSATION_EXECUTION || (conversationExecutionEpochRef.current.get(conversation.id) ?? 0) !== executionEpoch) return;
         setActiveTurnIndex(conversation.id, null);
         /* 失败任务保留在原会话，不覆盖发送期间新增的草稿，也不自动重试。 */
-        if (images.length && conversationsRef.current.some((item) => item.id === conversation.id)) {
-          const turn = { id: createPiCommandId("queue"), conversationId: conversation.id, prompt: text, images, createdAt: Date.now() };
+        if (attachments.length && conversationsRef.current.some((item) => item.id === conversation.id)) {
+          const turn = { id: createPiCommandId("queue"), conversationId: conversation.id, prompt: text, attachments, createdAt: Date.now() };
           queuedTurnPreparationsRef.current.set(turn.id, beforeRun);
           patchConversationQueue(conversation.id, (turns) => [turn, ...turns]);
           pausedConversationQueuesRef.current.add(conversation.id);
@@ -1115,7 +1128,7 @@ export function useWorkspace() {
     else pendingManualSteersRef.current.delete(conversationId);
 
     dispatches.forEach(({ turn, beforeRun }) => {
-      const { execution } = executeConversationTurn(conversation, turn.prompt, beforeRun, commandType, turn.images);
+      const { execution } = executeConversationTurn(conversation, turn.prompt, beforeRun, commandType, turn.attachments);
       execution.catch(() => undefined);
     });
   }
@@ -1140,7 +1153,7 @@ export function useWorkspace() {
     const beforeRun = queuedTurnPreparationsRef.current.get(nextTurn.id);
     queuedTurnPreparationsRef.current.delete(nextTurn.id);
 
-    const { execution } = executeConversationTurn(conversation, nextTurn.prompt, beforeRun, "prompt", nextTurn.images);
+    const { execution } = executeConversationTurn(conversation, nextTurn.prompt, beforeRun, "prompt", nextTurn.attachments);
     execution
       .catch(() => undefined)
       .finally(() => {
@@ -1151,13 +1164,14 @@ export function useWorkspace() {
 
   function sendMessage(beforeRun?: TurnPreparation) {
     const text = draft.trim();
-    const images = imageDraft.images;
-    if ((!text && !images.length) || !activeProject.id || imageDraft.pending) return;
+    const attachments = attachmentDraft.attachments;
+    const images = attachments.filter(isImageAttachment);
+    if ((!text && !attachments.length) || !activeProject.id || attachmentDraft.pending) return;
     if (images.length && !activeConversationState.model?.input?.includes("image")) {
-      imageDraft.setError("当前模型不支持图片或模型信息尚未就绪，请选择支持图片的模型");
+      attachmentDraft.setError("当前模型不支持图片或模型信息尚未就绪，请选择支持图片的模型");
       return;
     }
-    const summary = text || `[图片 × ${images.length}]`;
+    const summary = text || `[附件 × ${attachments.length}]`;
     const modifiedAt = new Date().toISOString();
     const conversation = activeConversation ?? { id: createPiCommandId("conversation"), projectId: activeProjectId, title: summary.slice(0, 22), preview: summary, time: "刚刚", modifiedAt };
 
@@ -1180,24 +1194,24 @@ export function useWorkspace() {
         return;
       }
       if (beforeRun) queuedTurnPreparationsRef.current.set(editing.turnId, beforeRun);
-      patchConversationQueue(conversation.id, (turns) => turns.map((turn) => turn.id === editing.turnId ? { ...turn, prompt: text, images } : turn));
+      patchConversationQueue(conversation.id, (turns) => turns.map((turn) => turn.id === editing.turnId ? { ...turn, prompt: text, attachments } : turn));
       clearQueuedTurnEditing();
       updateConversationSummary(conversation, summary, modifiedAt);
       setDraft("");
-      imageDraft.clear();
+      attachmentDraft.clear();
       pausedConversationQueuesRef.current.delete(conversation.id);
       pumpConversationQueue(conversation.id);
       return {
         conversationId: conversation.id,
         turnIndex: (timelinesRef.current[conversation.id] ?? []).filter((item) => item.type === "user").length + turnIndex,
         prompt: text,
-        ...(images.length ? { images } : {}),
+        ...(attachments.length ? { attachments } : {}),
       } satisfies SubmittedConversationTurn;
     }
 
     updateConversationSummary(conversation, summary, modifiedAt);
     setDraft("");
-    imageDraft.clear();
+    attachmentDraft.clear();
 
     const currentQueue = queuedTurnsRef.current[conversation.id] ?? [];
     const busy = Boolean(
@@ -1212,7 +1226,7 @@ export function useWorkspace() {
         id: createPiCommandId("queue"),
         conversationId: conversation.id,
         prompt: text,
-        ...(images.length ? { images } : {}),
+        ...(attachments.length ? { attachments } : {}),
         createdAt: Date.now(),
       };
       queuedTurnPreparationsRef.current.set(queuedTurn.id, beforeRun);
@@ -1222,11 +1236,11 @@ export function useWorkspace() {
         conversationId: conversation.id,
         turnIndex: (timelinesRef.current[conversation.id] ?? []).filter((item) => item.type === "user").length + currentQueue.length,
         prompt: text,
-        ...(images.length ? { images } : {}),
+        ...(attachments.length ? { attachments } : {}),
       } satisfies SubmittedConversationTurn;
     }
 
-    const { submittedTurn, execution } = executeConversationTurn(conversation, text, beforeRun, "prompt", images);
+    const { submittedTurn, execution } = executeConversationTurn(conversation, text, beforeRun, "prompt", attachments);
     execution.catch(() => undefined);
     return submittedTurn;
   }
@@ -1263,7 +1277,7 @@ export function useWorkspace() {
 
     const conversation = conversationsRef.current.find((item) => item.id === conversationId);
     if (!conversation) return;
-    const { execution } = executeConversationTurn(conversation, selected.prompt, beforeRun, runtimeBusy ? "steer" : "prompt", selected.images);
+    const { execution } = executeConversationTurn(conversation, selected.prompt, beforeRun, runtimeBusy ? "steer" : "prompt", selected.attachments);
     execution.catch(() => undefined);
   }
 
@@ -1271,15 +1285,15 @@ export function useWorkspace() {
     if (!conversationId || editingQueuedTurnRef.current) return;
     const turn = (queuedTurnsRef.current[conversationId] ?? []).find((item) => item.id === turnId);
     if (!turn) return;
-    if (draft.length || imageDraft.images.length || imageDraft.pending) {
-      imageDraft.setError("请先发送或清空当前草稿，再编辑队列任务");
+    if (draft.length || attachmentDraft.attachments.length || attachmentDraft.pending) {
+      attachmentDraft.setError("请先发送或清空当前草稿，再编辑队列任务");
       return;
     }
     const editing = { conversationId, turnId };
     editingQueuedTurnRef.current = editing;
     setEditingQueuedTurn(editing);
     setDraft(turn.prompt);
-    imageDraft.set(turn.images ?? [], conversationId);
+    attachmentDraft.set(turn.attachments ?? [], conversationId);
   }
 
   function abortConversation(conversationId = activeConversationId) {
@@ -1342,7 +1356,7 @@ export function useWorkspace() {
     extensionWidgets,
     timeline,
     draft,
-    imageDraft,
+    attachmentDraft,
     queuedTurns,
     editingQueuedTurnId,
     isLoading,

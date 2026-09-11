@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ImageAttachment } from "@/lib/image-attachments";
+import type { Attachment } from "@/lib/attachments";
 import {
   areConversationStatusesEqual,
   getConversationChanges,
@@ -24,7 +24,7 @@ type TurnStart = {
   conversationId: string;
   turnIndex: number;
   prompt: string;
-  images?: ImageAttachment[];
+  attachments?: Attachment[];
 };
 
 const RUNNING_REFRESH_INTERVAL = 2_000;
@@ -81,7 +81,7 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
     return () => window.clearInterval(interval);
   }, [activeRunningTurnSignature]);
 
-  const startTurn = ({ cwd: turnCwd, conversationId, turnIndex, prompt, images }: TurnStart) => Promise.all(
+  const startTurn = ({ cwd: turnCwd, conversationId, turnIndex, prompt, attachments }: TurnStart) => Promise.all(
     Object.entries(changesRef.current)
       .filter(([, entry]) => entry.cwd === turnCwd && entry.conversationId === conversationId && entry.phase === "running" && entry.turnIndex !== turnIndex)
       .map(([key, entry]) => settleEntry(key, entry)),
@@ -95,7 +95,7 @@ export function useConversationChanges(cwd: string, sessionId: string, activeTur
         cwd: turnCwd,
         conversationId,
         turnIndex,
-        promptFingerprint: getConversationTurnFingerprint(prompt, images),
+        promptFingerprint: getConversationTurnFingerprint(prompt, attachments),
         baselineTree,
         endTree: null,
         phase: "running",

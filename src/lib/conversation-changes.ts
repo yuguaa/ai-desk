@@ -1,5 +1,5 @@
 import type { GitFileStatus, GitStatus } from "@/types/workspace";
-import type { ImageAttachment } from "@/lib/image-attachments";
+import type { Attachment, FileAttachment, ImageAttachment } from "@/lib/attachments";
 
 export type ConversationSnapshotStatus = GitStatus;
 
@@ -24,16 +24,25 @@ export function getConversationTurnKey(cwd: string, conversationId: string, turn
 }
 
 const imageFingerprints = new WeakMap<ImageAttachment, string>();
+const fileFingerprints = new WeakMap<FileAttachment, string>();
 
-export function getConversationTurnFingerprint(prompt: string, images: ImageAttachment[] = []) {
+export function getConversationTurnFingerprint(prompt: string, attachments: Attachment[] = []) {
   const textFingerprint = fingerprintText(prompt);
-  if (!images.length) return textFingerprint;
-  /* 图片对象在流式更新间不变，避免每个 token 都重新遍历 base64。 */
-  return `${textFingerprint}:${images.map((image) => {
-    let fingerprint = imageFingerprints.get(image);
+  if (!attachments.length) return textFingerprint;
+  /* 图片和文件对象在流式更新间不变，避免每个 token 都重新遍历内容。 */
+  return `${textFingerprint}:${attachments.map((attachment) => {
+    if (attachment.type === "file") {
+      let fingerprint = fileFingerprints.get(attachment);
+      if (!fingerprint) {
+        fingerprint = fingerprintText(`${attachment.name}:${attachment.content}`);
+        fileFingerprints.set(attachment, fingerprint);
+      }
+      return fingerprint;
+    }
+    let fingerprint = imageFingerprints.get(attachment);
     if (!fingerprint) {
-      fingerprint = fingerprintText(`${image.mimeType}:${image.data}`);
-      imageFingerprints.set(image, fingerprint);
+      fingerprint = fingerprintText(`${attachment.mimeType}:${attachment.data}`);
+      imageFingerprints.set(attachment, fingerprint);
     }
     return fingerprint;
   }).join(":")}`;

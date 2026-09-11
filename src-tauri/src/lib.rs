@@ -1,5 +1,3 @@
-mod screenshot;
-
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use notify::{recommended_watcher, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
@@ -56,6 +54,10 @@ enum AppError {
     GitStatusParse(String),
     #[error("Git 提交信息必须为 1 到 4096 个字符")]
     InvalidGitCommitMessage,
+    #[error("无效的插件来源: {0}")]
+    InvalidPiPackage(String),
+    #[error("Pi 插件命令失败: {0}")]
+    PiPackageCommand(String),
 }
 
 impl From<AppError> for String {
@@ -198,6 +200,21 @@ pub struct PiRuntimeStatus {
     pub package_dir: String,
     pub version: String,
     pub parsed_version: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PiPackageSummary {
+    pub source: String,
+    pub scope: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PiPackageCommandResult {
+    pub ok: bool,
+    pub message: String,
 }
 
 struct PiProcess {
@@ -514,6 +531,173 @@ fn pi_runtime_status(runtime: PiRuntimeCheck) -> PiRuntimeStatus {
         version: runtime.version_output,
         parsed_version: runtime.parsed_version,
     }
+}
+
+fn global_pi_settings_path() -> Result<PathBuf, AppError> {
+    Ok(home_dir()?.join(".pi").join("agent").join("settings.json"))
+}
+
+fn project_pi_settings_path(cwd: &str) -> Result<PathBuf, AppError> {
+    Ok(workspace_root(cwd)?.join(".pi").join("settings.json"))
+}
+
+fn pi_package_source(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::to_owned)
+        .or_else(|| value.get("source").and_then(Value::as_str).map(str::to_owned))
+        .map(|source| source.trim().to_owned())
+        .filter(|source| !source.is_empty())
+}
+
+fn parse_pi_packages(settings: &Value) -> Vec<String> {
+    settings
+        .get("packages")
+        .and_then(Value::as_array)
+        .map(|packages| packages.iter().filter_map(pi_package_source).collect())
+        .unwrap_or_default()
+}
+
+fn read_pi_settings_packages(path: &Path) -> Vec<String> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+        .map(|settings| parse_pi_packages(&settings))
+        .unwrap_or_default()
+}
+
+fn pi_package_kind(source: &str) -> &'static str {
+    if source.starts_with("npm:") {
+        "npm"
+    } else if source.starts_with("git:")
+        || source.starts_with("https://")
+        || source.starts_with("http://")
+        || source.starts_with("ssh://")
+        || source.starts_with("git://")
+    {
+        "git"
+    } else {
+        "local"
+    }
+}
+
+fn collect_pi_packages(global_path: &Path, project_path: Option<&Path>) -> Vec<PiPackageSummary> {
+    let mut packages = Vec::new();
+    for source in read_pi_settings_packages(global_path) {
+        packages.push(PiPackageSummary {
+            kind: pi_package_kind(&source).to_owned(),
+            source,
+            scope: "global".to_owned(),
+        });
+    }
+    if let Some(project_path) = project_path {
+        for source in read_pi_settings_packages(project_path) {
+            packages.push(PiPackageSummary {
+                kind: pi_package_kind(&source).to_owned(),
+                source,
+                scope: "project".to_owned(),
+            });
+        }
+    }
+    packages
+}
+
+fn list_pi_packages_sync(cwd: Option<&str>) -> Result<Vec<PiPackageSummary>, String> {
+    let global_path = global_pi_settings_path()?;
+    let project_path = cwd
+        .filter(|cwd| !cwd.trim().is_empty())
+        .map(project_pi_settings_path)
+        .transpose()?;
+    Ok(collect_pi_packages(&global_path, project_path.as_deref()))
+}
+
+fn validate_pi_package_source(source: &str) -> Result<(), AppError> {
+    let source = source.trim();
+    if source.is_empty() || source.len() > 1024 {
+        return Err(AppError::InvalidPiPackage(
+            "插件来源必须为 1 到 1024 个字符".to_owned(),
+        ));
+    }
+    if source
+        .chars()
+        .any(|char| matches!(char, '\n' | '\r' | '\0'))
+    {
+        return Err(AppError::InvalidPiPackage(
+            "插件来源包含非法字符".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn pi_package_command_args(action: &str, source: &str, local: bool) -> Vec<String> {
+    let mut args = vec![action.to_owned(), source.trim().to_owned()];
+    if local {
+        args.extend(["-l".to_owned(), "--approve".to_owned()]);
+    } else {
+        args.push("--no-approve".to_owned());
+    }
+    args
+}
+
+fn run_pi_package_command(
+    args: &[String],
+    cwd: Option<&str>,
+) -> Result<PiPackageCommandResult, AppError> {
+    let executable = resolve_pi_executable_from(Some(&current_executable_path()?))?;
+    let command_cwd = match cwd.filter(|cwd| !cwd.trim().is_empty()) {
+        Some(cwd) => workspace_root(cwd)?,
+        None => home_dir()?,
+    };
+    let output = Command::new(&executable)
+        .args(args)
+        .current_dir(&command_cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "Never")
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|error| AppError::PiPackageCommand(error.to_string()))?;
+    let message = [
+        String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+        String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+    ]
+    .into_iter()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n");
+    if !output.status.success() {
+        return Err(AppError::PiPackageCommand(if message.is_empty() {
+            "Pi 插件命令执行失败".to_owned()
+        } else {
+            message
+        }));
+    }
+    Ok(PiPackageCommandResult { ok: true, message })
+}
+
+fn install_pi_package_sync(
+    source: &str,
+    local: bool,
+    cwd: Option<&str>,
+) -> Result<PiPackageCommandResult, String> {
+    validate_pi_package_source(source)?;
+    run_pi_package_command(
+        &pi_package_command_args("install", source, local),
+        if local { cwd } else { None },
+    )
+    .map_err(Into::into)
+}
+
+fn remove_pi_package_sync(
+    source: &str,
+    local: bool,
+    cwd: Option<&str>,
+) -> Result<PiPackageCommandResult, String> {
+    validate_pi_package_source(source)?;
+    run_pi_package_command(
+        &pi_package_command_args("remove", source, local),
+        if local { cwd } else { None },
+    )
+    .map_err(Into::into)
 }
 
 fn emit_pi_event(app: &AppHandle, conversation_id: &str, event: Value) {
@@ -1174,6 +1358,35 @@ fn rename_pi_session(session_file: String, name: String, timestamp: String) -> R
     visit_session(&path, |_| {})?;
     append_session_name(&path, name, &timestamp)?;
     Ok(())
+}
+
+#[tauri::command]
+async fn list_pi_packages(cwd: Option<String>) -> Result<Vec<PiPackageSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_pi_packages_sync(cwd.as_deref()))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn install_pi_package(
+    source: String,
+    local: bool,
+    cwd: Option<String>,
+) -> Result<PiPackageCommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || install_pi_package_sync(&source, local, cwd.as_deref()))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn remove_pi_package(
+    source: String,
+    local: bool,
+    cwd: Option<String>,
+) -> Result<PiPackageCommandResult, String> {
+    tauri::async_runtime::spawn_blocking(move || remove_pi_package_sync(&source, local, cwd.as_deref()))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command(async)]
@@ -2488,7 +2701,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            screenshot::setup(app.handle())?;
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())
@@ -2498,10 +2710,6 @@ pub fn run() {
         .manage(PiProcessRegistry::default())
         .manage(WorkspaceWatcherState::default())
         .invoke_handler(tauri::generate_handler![
-            screenshot::get_screenshot_status,
-            screenshot::request_screenshot_permission,
-            screenshot::set_screenshot_shortcut_enabled,
-            screenshot::capture_frontmost_window,
             list_pi_projects,
             read_pi_session,
             rename_pi_session,
@@ -2510,6 +2718,9 @@ pub fn run() {
             send_pi_command,
             list_pi_processes,
             stop_pi_process,
+            list_pi_packages,
+            install_pi_package,
+            remove_pi_package,
             git_commands::list_workspace_files,
             git_commands::read_workspace_file,
             git_commands::read_workspace_file_chunk,
@@ -2683,6 +2894,102 @@ mod tests {
             Some("0.84.2".to_owned())
         );
         assert_eq!(parse_pi_version("pi --version => invalid"), None);
+    }
+
+    #[test]
+    fn parse_pi_packages_should_read_string_and_object_forms() {
+        let settings = serde_json::json!({
+            "packages": [
+                "npm:pi-goal",
+                { "source": "git:github.com/user/repo", "skills": ["review"] },
+                "/abs/path/plugin"
+            ]
+        });
+        assert_eq!(
+            parse_pi_packages(&settings),
+            vec![
+                "npm:pi-goal".to_owned(),
+                "git:github.com/user/repo".to_owned(),
+                "/abs/path/plugin".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_pi_packages_should_ignore_blank_or_missing_sources() {
+        let settings = serde_json::json!({
+            "packages": ["  ", { "skills": [] }, "npm:ok"]
+        });
+        assert_eq!(parse_pi_packages(&settings), vec!["npm:ok".to_owned()]);
+    }
+
+    #[test]
+    fn pi_package_kind_should_classify_sources() {
+        assert_eq!(pi_package_kind("npm:@foo/bar"), "npm");
+        assert_eq!(pi_package_kind("git:github.com/a/b"), "git");
+        assert_eq!(pi_package_kind("https://github.com/a/b"), "git");
+        assert_eq!(pi_package_kind("./local/plugin"), "local");
+    }
+
+    #[test]
+    fn collect_pi_packages_should_merge_global_and_project_scopes() {
+        let dir = TestDir::new("pi-packages");
+        let global = dir.path().join("global-settings.json");
+        let project = dir.path().join("project-settings.json");
+        write_file(
+            dir.path(),
+            "global-settings.json",
+            r#"{"packages":["npm:a","npm:b"]}"#,
+        );
+        write_file(
+            dir.path(),
+            "project-settings.json",
+            r#"{"packages":["npm:b","git:c"]}"#,
+        );
+        let packages = collect_pi_packages(&global, Some(&project));
+        let scoped: Vec<(String, String)> = packages
+            .iter()
+            .map(|package| (package.scope.clone(), package.source.clone()))
+            .collect();
+        assert_eq!(
+            scoped,
+            vec![
+                ("global".to_owned(), "npm:a".to_owned()),
+                ("global".to_owned(), "npm:b".to_owned()),
+                ("project".to_owned(), "npm:b".to_owned()),
+                ("project".to_owned(), "git:c".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn validate_pi_package_source_should_reject_invalid_input() {
+        assert!(validate_pi_package_source("npm:ok").is_ok());
+        assert!(validate_pi_package_source("  npm:ok  ").is_ok());
+        assert!(validate_pi_package_source("").is_err());
+        assert!(validate_pi_package_source("a\nb").is_err());
+        assert!(validate_pi_package_source(&"x".repeat(1025)).is_err());
+    }
+
+    #[test]
+    fn pi_package_command_args_should_build_global_and_local_forms() {
+        assert_eq!(
+            pi_package_command_args("install", "npm:ok", false),
+            vec![
+                "install".to_owned(),
+                "npm:ok".to_owned(),
+                "--no-approve".to_owned()
+            ]
+        );
+        assert_eq!(
+            pi_package_command_args("remove", " git:ok ", true),
+            vec![
+                "remove".to_owned(),
+                "git:ok".to_owned(),
+                "-l".to_owned(),
+                "--approve".to_owned()
+            ]
+        );
     }
 
     #[test]

@@ -73,7 +73,7 @@ describe("ChatPanel", () => {
     root = createRoot(container);
     const onSend = vi.fn();
     await act(() => renderChatPanel({
-      images: [{ id: "image-1", name: "图片.png", type: "image", data: "aGVsbG8=", mimeType: "image/png" }],
+      attachments: [{ id: "image-1", name: "图片.png", type: "image", data: "aGVsbG8=", mimeType: "image/png" }],
       selectedModel: scenario === "模型未就绪" ? null : { id: "model", name: "Model", provider: "provider", reasoning: false, contextWindow: 200_000, input: scenario === "模型不支持" ? ["text"] : ["text", "image"] },
       draft: "", onSend,
       attachmentsLoading: scenario === "读取中",

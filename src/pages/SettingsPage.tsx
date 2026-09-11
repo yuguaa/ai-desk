@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Check, Download, LoaderCircle, Monitor, Moon, Plus, RefreshCw, RotateCcw, Settings, Sun, Trash2, TriangleAlert } from "@/components/ui/icons";
+import { ArrowLeft, Check, Download, LoaderCircle, Monitor, Moon, Plus, RefreshCw, RotateCcw, Settings, ShieldCheck, Sun, Trash2, TriangleAlert } from "@/components/ui/icons";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ColorInput } from "@/components/ui/color-input";
 import { Input } from "@/components/ui/input";
@@ -8,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RuntimeBadge } from "@/components/workspace/RuntimeBadge";
-import { ScreenshotSettings } from "@/components/workspace/ScreenshotSettings";
+import { usePiPackages } from "@/hooks/use-pi-packages";
 import { mascotImageFor, Mascot } from "@/components/mascot/Mascot";
 import type { AppUpdateController, AppUpdateState } from "@/hooks/use-app-update";
 import { ACCENT_OPTIONS, FONT_OPTIONS, MASCOT_OPTIONS, MASCOT_SOURCE_OPTIONS, normalizeHexColor, normalizeMascotImageUrl, THEME_OPTIONS, type AccentColor, type AppSettings, type FontFamilyPreference, type MascotSource, type ThemePreference } from "@/lib/app-settings";
@@ -157,7 +158,6 @@ export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onU
           </SettingsSection>
 
           <SettingsSection title="运行" description="本应用通过 Tauri 原生窗口连接本机 Pi。">
-            {immersive && <ScreenshotSettings />}
             <SettingsGroup>
               <SettingRow label="运行时" description="每个对话拥有独立的 Pi 进程，可同时运行"><RuntimeBadge isTauri={isTauri} compact /></SettingRow>
               <SettingRow label="配置存储" description="外观与看板娘偏好保存在本机应用存储"><span className="font-mono text-[var(--font-size-10)] text-[var(--text-tertiary)]">local</span></SettingRow>
@@ -194,6 +194,10 @@ export default function SettingsPage({ settings, appUpdate, isTauri, onBack, onU
                 </div>
               </SettingRow>
             </SettingsGroup>
+          </SettingsSection>
+
+          <SettingsSection title="Pi 插件" description="管理本机 Pi 的 npm 与 git 插件包。">
+            <PiPackagesPanel />
           </SettingsSection>
           {saved && <div role="status" aria-live="polite" className="mt-4 flex items-center gap-2 text-[var(--font-size-11)] text-[var(--success)]"><Check size={13} />设置已更新</div>}
         </div>
@@ -234,6 +238,46 @@ function appUpdatePresentation(isTauri: boolean, currentVersion: string | null, 
     default:
       return { message: "点击按钮检查已发布版本", tone: "text-[var(--text-tertiary)]" };
   }
+}
+
+function PiPackagesPanel() {
+  const { packages, loading, error, installing, removingSource, install, remove } = usePiPackages();
+  const [source, setSource] = useState("");
+  const busy = installing || removingSource !== null;
+
+  const handleInstall = () => {
+    install(source).then((ok) => { if (ok) setSource(""); });
+  };
+
+  return <div className="flex flex-col gap-3">
+    <div className="flex items-start gap-2 rounded-[var(--radius-sm)] bg-[var(--warning-tint)] px-2.5 py-2 text-[var(--font-size-10-5)] leading-5 text-[var(--text-secondary)]">
+      <ShieldCheck className="mt-0.5 size-3.5 shrink-0 text-[var(--warning)]" />
+      <span>插件以完整系统权限运行，请只安装来源可信的 npm 或 git 包。安装或移除后需重启对应对话的 Pi 进程才会生效。</span>
+    </div>
+
+    <div className="flex items-center gap-1.5">
+      <Input aria-label="插件来源" value={source} onChange={(event) => setSource(event.currentTarget.value)} placeholder="npm:pi-goal 或 git:github.com/user/repo" spellCheck={false} className="min-w-0 flex-1 font-mono text-[var(--font-size-11)]" />
+      <Button type="button" size="sm" disabled={!source.trim() || busy} onClick={handleInstall} className="shrink-0">{installing ? <LoaderCircle size={13} className="animate-spin" /> : <Plus size={13} />}安装</Button>
+    </div>
+
+    {error && <div role="alert" className="flex items-start gap-1.5 text-[var(--font-size-10-5)] text-[var(--error)]"><TriangleAlert className="mt-0.5 size-3.5 shrink-0" /><span className="min-w-0 break-all leading-5">{error}</span></div>}
+
+    {loading
+      ? <div role="status" aria-label="加载插件中" className="flex items-center gap-2 py-1 text-[var(--font-size-10-5)] text-[var(--text-tertiary)]"><LoaderCircle size={13} className="animate-spin" /><span>加载插件中…</span></div>
+      : packages.length === 0
+        ? <p className="py-1 text-[var(--font-size-10-5)] text-[var(--text-tertiary)]">尚未安装任何插件。</p>
+        : <div className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+          {packages.map((item) => <div key={item.source} className="flex items-center gap-2 px-2.5 py-2">
+            <span className="min-w-0 flex-1 truncate font-mono text-[var(--font-size-11)] text-[var(--text-primary)]" title={item.source}>{item.source}</span>
+            <Badge variant="secondary">{packageKindLabel(item.kind)}</Badge>
+            <Button type="button" variant="ghost" size="icon-xs" aria-label={`移除插件 ${item.source}`} title="移除插件" disabled={busy} onClick={() => remove(item.source)}>{removingSource === item.source ? <LoaderCircle size={12} className="animate-spin" /> : <Trash2 size={12} />}</Button>
+          </div>)}
+        </div>}
+  </div>;
+}
+
+function packageKindLabel(kind: "npm" | "git" | "local") {
+  return kind === "npm" ? "npm" : kind === "git" ? "git" : "本地";
 }
 
 function SettingsSection({ title, description, children }: { title: string; description: string; children: ReactNode }) {

@@ -65,6 +65,11 @@ export type PiExtensionResponse =
   | { type: "extension_ui_response"; id: string; confirmed: boolean }
   | { type: "extension_ui_response"; id: string; cancelled: true };
 
+export type PiGoalState = {
+  objective: string;
+  status: "active" | "paused" | "complete" | "budget_limited";
+};
+
 export type PiConversationState = {
   model: PiModel | null;
   thinkingLevel: string | null;
@@ -81,6 +86,7 @@ export type PiConversationState = {
   extensionWidgets: Record<string, PiExtensionWidget>;
   extensionTitle: string | null;
   extensionEditorText: string;
+  goal: PiGoalState | null;
 };
 
 export function startPiProcess(conversationId: string, cwd: string, sessionFile?: string, projectTrusted?: boolean) {

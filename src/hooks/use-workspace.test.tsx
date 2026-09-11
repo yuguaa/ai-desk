@@ -69,9 +69,9 @@ vi.mock("@/lib/pi-runtime", () => ({
 }));
 
 import { useWorkspace } from "@/hooks/use-workspace";
-import type { ImageAttachment } from "@/lib/image-attachments";
+import type { Attachment } from "@/lib/attachments";
 
-const attachedImage: ImageAttachment = { id: "image-1", name: "screen.png", type: "image", mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZe0AAAAASUVORK5CYII=" };
+const attachedImage: Attachment = { id: "image-1", name: "screen.png", type: "image", mimeType: "image/png", data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZe0AAAAASUVORK5CYII=" };
 const visionModel = { id: "vision", provider: "test", input: ["text", "image"] };
 
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
@@ -116,25 +116,25 @@ describe("useWorkspace", () => {
     act(() => workspace!.setDraft("待编辑任务"));
     act(() => workspace!.sendMessage());
     const queued = workspace!.queuedTurns[0];
-    let finish!: (images: ImageAttachment[]) => void;
+    let finish!: (attachments: Attachment[]) => void;
     let loading: Promise<void> | undefined;
     if (kind === "文字") act(() => workspace!.setDraft("尚未发送的文字"));
-    if (kind === "图片") act(() => workspace!.imageDraft.set([attachedImage]));
+    if (kind === "图片") act(() => workspace!.attachmentDraft.set([attachedImage]));
     if (kind === "读取中") {
-      act(() => { loading = workspace!.imageDraft.load(() => new Promise((resolve) => { finish = resolve; })); });
+      act(() => { loading = workspace!.attachmentDraft.load(() => new Promise((resolve) => { finish = resolve; })); });
       await act(async () => { await Promise.resolve(); });
     }
     act(() => workspace!.editQueuedTurn(queued.id));
     expect(workspace!.editingQueuedTurnId).toBeNull();
     expect(workspace!.queuedTurns).toEqual([queued]);
-    expect(workspace!.imageDraft.error).toBe("请先发送或清空当前草稿，再编辑队列任务");
+    expect(workspace!.attachmentDraft.error).toBe("请先发送或清空当前草稿，再编辑队列任务");
     expect(workspace!.draft).toBe(kind === "文字" ? "尚未发送的文字" : "");
-    if (kind === "图片") expect(workspace!.imageDraft.images).toEqual([attachedImage]);
+    if (kind === "图片") expect(workspace!.attachmentDraft.attachments).toEqual([attachedImage]);
     if (kind === "读取中") {
-      expect(workspace!.imageDraft.pending).toBe(1);
+      expect(workspace!.attachmentDraft.pending).toBe(1);
       await act(async () => { finish([attachedImage]); await loading; });
-      expect(workspace!.imageDraft.images).toEqual([attachedImage]);
-      expect(workspace!.imageDraft.pending).toBe(0);
+      expect(workspace!.attachmentDraft.attachments).toEqual([attachedImage]);
+      expect(workspace!.attachmentDraft.pending).toBe(0);
     }
   });
 
@@ -144,7 +144,7 @@ describe("useWorkspace", () => {
     let resolve!: () => void;
     let reject!: (reason: Error) => void;
     const preparation = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
-    act(() => workspace!.imageDraft.set([attachedImage]));
+    act(() => workspace!.attachmentDraft.set([attachedImage]));
     act(() => workspace!.sendMessage(() => preparation));
     act(() => workspace!.abortConversation());
     act(() => workspace!.setDraft("新任务"));
@@ -165,39 +165,39 @@ describe("useWorkspace", () => {
   it("项目草稿在手动新建会话时迁移", async () => {
     bridge.projects[0].conversations = [];
     await mountWorkspace();
-    act(() => workspace!.imageDraft.set([attachedImage]));
+    act(() => workspace!.attachmentDraft.set([attachedImage]));
     await act(async () => { workspace!.createConversation(); });
     expect(workspace!.activeConversationId).not.toBe("");
-    expect(workspace!.imageDraft.images).toEqual([attachedImage]);
+    expect(workspace!.attachmentDraft.attachments).toEqual([attachedImage]);
   });
 
   it("发送失败回到原会话队列，不覆盖新草稿；切换重载后仍可编辑重试", async () => {
     await mountWorkspace();
     emitEvent("c1", { type: "response", command: "get_state", success: true, data: { model: visionModel } });
-    act(() => workspace!.imageDraft.set([attachedImage]));
+    act(() => workspace!.attachmentDraft.set([attachedImage]));
     await act(async () => { workspace!.sendMessage(); });
     const state = findLastCommand("get_state").command;
     await act(async () => { runtime.onEvent?.({ conversationId: "c1", event: { type: "response", id: state.id, command: "get_state", success: true, data: { model: visionModel } } }); });
     const prompt = findLastCommand("prompt").command;
     const newer = { ...attachedImage, id: "new-draft" };
-    act(() => workspace!.imageDraft.set([newer]));
+    act(() => workspace!.attachmentDraft.set([newer]));
     await act(() => workspace!.selectConversation(workspace!.conversations.find((item) => item.id === "c2")!));
     await act(async () => { runtime.onEvent?.({ conversationId: "c1", event: { type: "response", id: prompt.id, command: "prompt", success: false, error: "发送失败" } }); });
-    expect(workspace!.imageDraft.images).toEqual([]);
+    expect(workspace!.attachmentDraft.attachments).toEqual([]);
     expect(workspace!.queuedTurns).toEqual([]);
     runtime.sendPiCommand.mockClear();
     await act(() => workspace!.selectConversation(workspace!.conversations.find((item) => item.id === "c1")!));
-    expect(workspace!.imageDraft.images).toEqual([newer]);
+    expect(workspace!.attachmentDraft.attachments).toEqual([newer]);
     expect(workspace!.queuedTurns).toHaveLength(1);
-    expect(workspace!.queuedTurns[0].images).toEqual([attachedImage]);
+    expect(workspace!.queuedTurns[0].attachments).toEqual([attachedImage]);
     expect(hasSentCommand("prompt")).toBe(false);
     act(() => workspace!.editQueuedTurn(workspace!.queuedTurns[0].id));
     expect(workspace!.editingQueuedTurnId).toBeNull();
-    expect(workspace!.imageDraft.images).toEqual([newer]);
-    expect(workspace!.imageDraft.error).toContain("先发送或清空");
-    act(() => workspace!.imageDraft.clear());
+    expect(workspace!.attachmentDraft.attachments).toEqual([newer]);
+    expect(workspace!.attachmentDraft.error).toContain("先发送或清空");
+    act(() => workspace!.attachmentDraft.clear());
     act(() => workspace!.editQueuedTurn(workspace!.queuedTurns[0].id));
-    expect(workspace!.imageDraft.images).toEqual([attachedImage]);
+    expect(workspace!.attachmentDraft.attachments).toEqual([attachedImage]);
     await act(async () => { workspace!.sendMessage(); });
     const retryState = findLastCommand("get_state").command;
     await act(async () => { runtime.onEvent?.({ conversationId: "c1", event: { type: "response", id: retryState.id, command: "get_state", success: true, data: { model: visionModel } } }); });
@@ -206,46 +206,46 @@ describe("useWorkspace", () => {
 
   it("图片草稿随会话隔离；不支持图片时不清空草稿或调用模型", async () => {
     await mountWorkspace();
-    act(() => workspace!.imageDraft.set([attachedImage]));
+    act(() => workspace!.attachmentDraft.set([attachedImage]));
     await act(() => workspace!.selectConversation(workspace!.conversations.find((item) => item.id === "c2")!));
-    expect(workspace!.imageDraft.images).toEqual([]);
+    expect(workspace!.attachmentDraft.attachments).toEqual([]);
     await act(() => workspace!.selectConversation(workspace!.conversations.find((item) => item.id === "c1")!));
-    expect(workspace!.imageDraft.images).toEqual([attachedImage]);
+    expect(workspace!.attachmentDraft.attachments).toEqual([attachedImage]);
     runtime.sendPiCommand.mockClear();
     act(() => workspace!.sendMessage());
-    expect(workspace!.imageDraft.images).toEqual([attachedImage]);
-    expect(workspace!.imageDraft.error).toContain("不支持图片");
+    expect(workspace!.attachmentDraft.attachments).toEqual([attachedImage]);
+    expect(workspace!.attachmentDraft.error).toContain("不支持图片");
     expect(hasSentCommand("prompt")).toBe(false);
   });
 
   it("纯图片发送包含原生 images 协议并保留时间线和快照内容", async () => {
     await mountWorkspace();
     emitEvent("c1", { type: "response", command: "get_state", success: true, data: { model: visionModel } });
-    act(() => workspace!.imageDraft.set([attachedImage]));
+    act(() => workspace!.attachmentDraft.set([attachedImage]));
     runtime.sendPiCommand.mockClear();
     const beforeRun = vi.fn(() => Promise.resolve());
     await act(async () => { workspace!.sendMessage(beforeRun); });
-    expect(beforeRun).toHaveBeenCalledWith(expect.objectContaining({ prompt: "", images: [attachedImage] }));
+    expect(beforeRun).toHaveBeenCalledWith(expect.objectContaining({ prompt: "", attachments: [attachedImage] }));
     const state = findLastCommand("get_state").command;
     await act(async () => { runtime.onEvent?.({ conversationId: "c1", event: { type: "response", id: state.id, command: "get_state", success: true, data: { model: visionModel } } }); });
     expect(findLastCommand("prompt").command).toMatchObject({ message: "", images: [{ type: "image", mimeType: "image/png", data: attachedImage.data }] });
     expect(workspace!.timeline[0]).toMatchObject({ type: "user", text: "", images: [attachedImage] });
-    expect(workspace!.imageDraft.images).toEqual([]);
+    expect(workspace!.attachmentDraft.attachments).toEqual([]);
   });
 
   it("队列编辑保留图片，出队前重新检查模型能力", async () => {
     runtime.processList = [{ conversationId: "c1", pid: 101, running: true, busy: true }];
     await mountWorkspace();
     emitEvent("c1", { type: "response", command: "get_state", success: true, data: { model: visionModel } });
-    act(() => workspace!.imageDraft.set([attachedImage]));
+    act(() => workspace!.attachmentDraft.set([attachedImage]));
     act(() => workspace!.sendMessage());
     const turn = workspace!.queuedTurns[0];
-    expect(turn.images).toEqual([attachedImage]);
+    expect(turn.attachments).toEqual([attachedImage]);
     act(() => workspace!.editQueuedTurn(turn.id));
-    expect(workspace!.imageDraft.images).toEqual([attachedImage]);
+    expect(workspace!.attachmentDraft.attachments).toEqual([attachedImage]);
     act(() => workspace!.setDraft("分析截图"));
     act(() => workspace!.sendMessage());
-    expect(workspace!.queuedTurns[0]).toMatchObject({ prompt: "分析截图", images: [attachedImage] });
+    expect(workspace!.queuedTurns[0]).toMatchObject({ prompt: "分析截图", attachments: [attachedImage] });
     runtime.sendPiCommand.mockClear();
     await act(async () => { runtime.onEvent?.({ conversationId: "c1", event: { type: "agent_settled" } }); });
     const state = findLastCommand("get_state").command;
@@ -254,7 +254,7 @@ describe("useWorkspace", () => {
     expect(workspace!.timeline.at(-1)).toMatchObject({ type: "assistant", text: expect.stringContaining("不支持图片") });
     expect(workspace!.timeline.find((item) => item.type === "user")).toMatchObject({ images: [attachedImage] });
     expect(workspace!.queuedTurns).toHaveLength(1);
-    expect(workspace!.queuedTurns[0].images).toEqual([attachedImage]);
+    expect(workspace!.queuedTurns[0].attachments).toEqual([attachedImage]);
   });
 
   it("草稿、RPC 和后台会话更新保持扩展列表引用，实际修改才更新对应列表", async () => {

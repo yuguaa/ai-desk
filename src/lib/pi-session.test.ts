@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { imagesFromContent, projectPiSession, textFromContent, textFromMessageContent } from "@/lib/pi-session";
+import { goalFromSessionEntries, imagesFromContent, projectPiSession, textFromContent, textFromMessageContent } from "@/lib/pi-session";
 
 const image = { type: "image", data: "aGVsbG8=", mimeType: "image/png" };
 
@@ -83,5 +83,26 @@ describe("Pi session projection", () => {
     expect(timeline.filter((item) => item.type === "tool")).toHaveLength(1);
     expect(timeline.find((item) => item.type === "assistant")).toMatchObject({ text: "最终正文" });
     expect(timeline.find((item) => item.type === "tool")).toMatchObject({ output: "done", command: "ls", status: "completed" });
+  });
+});
+
+describe("goalFromSessionEntries", () => {
+  it("从最近的 pi-goal 事件提取目标与状态", () => {
+    const entries = [
+      { type: "message", id: "1" },
+      { type: "custom_message", customType: "pi-goal-event", details: { kind: "active", goal: { objective: "修复滚动", status: "active" } } },
+    ];
+    expect(goalFromSessionEntries(entries)).toEqual({ objective: "修复滚动", status: "active" });
+  });
+
+  it("cleared 事件清除目标", () => {
+    const entries = [
+      { type: "custom_message", customType: "pi-goal-event", details: { kind: "cleared", goal: { objective: "修复滚动", status: "active" } } },
+    ];
+    expect(goalFromSessionEntries(entries)).toBeNull();
+  });
+
+  it("没有 pi-goal 事件时返回 null", () => {
+    expect(goalFromSessionEntries([{ type: "message", id: "1" }])).toBeNull();
   });
 });

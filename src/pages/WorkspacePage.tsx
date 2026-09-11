@@ -9,11 +9,9 @@ import { WorkspaceSidebar } from "@/components/workspace/WorkspaceSidebar";
 import { useConversationChanges } from "@/hooks/use-conversation-changes";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useWorkspaceInspector } from "@/hooks/use-workspace-inspector";
-import { useScreenshot } from "@/hooks/use-screenshot";
 
-export default function WorkspacePage({ onOpenSettings, onShowWorkspace }: { onOpenSettings: () => void; onShowWorkspace?: () => void }) {
+export default function WorkspacePage({ onOpenSettings }: { onOpenSettings: () => void }) {
   const workspace = useWorkspace();
-  const captureScreenshot = useScreenshot(workspace.imageDraft, Boolean(workspace.activeProject.id), onShowWorkspace);
   const inspector = useWorkspaceInspector(workspace.activeProject.path);
   const conversationChanges = useConversationChanges(workspace.activeProject.path, workspace.activeConversationId, workspace.activeTurnIndexes);
   const [inspectorTab, setInspectorTab] = useState<"files" | "git">("files");
@@ -96,12 +94,11 @@ export default function WorkspacePage({ onOpenSettings, onShowWorkspace }: { onO
             timeline={workspace.timeline}
             isTimelineLoading={workspace.isTimelineLoading}
             draft={workspace.draft}
-            images={workspace.imageDraft.images}
-            onAddImages={workspace.imageDraft.addFiles}
-            onRemoveImage={workspace.imageDraft.remove}
-            attachmentsLoading={workspace.imageDraft.pending > 0}
-            attachmentError={workspace.imageDraft.error}
-            onCaptureScreenshot={captureScreenshot}
+            attachments={workspace.attachmentDraft.attachments}
+            onAddFiles={workspace.attachmentDraft.addFiles}
+            onRemoveAttachment={workspace.attachmentDraft.remove}
+            attachmentsLoading={workspace.attachmentDraft.pending > 0}
+            attachmentError={workspace.attachmentDraft.error}
             isBusy={isBusy}
             queuedTurns={workspace.queuedTurns}
             editingQueuedTurnId={workspace.editingQueuedTurnId}
@@ -129,6 +126,7 @@ export default function WorkspacePage({ onOpenSettings, onShowWorkspace }: { onO
             extensionNotifications={workspace.extensionNotifications}
             extensionStatuses={workspace.extensionStatuses}
             extensionWidgets={workspace.extensionWidgets}
+            goal={workspace.conversationState.goal}
             onRespondToExtensionUi={workspace.respondToExtensionUi}
           />
         </main>

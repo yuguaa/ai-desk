@@ -16,7 +16,7 @@ const workspace = vi.hoisted(() => ({
   isLoading: false,
   timeline: [],
   draft: "",
-  imageDraft: { images: [], pending: 0, error: null, addFiles: vi.fn(), remove: vi.fn() },
+  attachmentDraft: { attachments: [], pending: 0, error: null, addFiles: vi.fn(), remove: vi.fn() },
   queuedTurns: [],
   conversationState: { availableModels: [], model: "", thinkingLevel: "", availableThinkingLevels: [] },
   runtimeIsTauri: false,

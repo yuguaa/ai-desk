@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PromptInput as PromptInputBase } from "@/components/ai-elements/prompt-input";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { ImageAttachment } from "@/lib/image-attachments";
+import type { Attachment } from "@/lib/attachments";
 
 Reflect.set(globalThis, "IS_REACT_ACT_ENVIRONMENT", true);
 
@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 describe("PromptInput", () => {
-  const images: ImageAttachment[] = [{ id: "image-1", name: "截图.png", type: "image", data: "aGVsbG8=", mimeType: "image/png" }];
+  const attachments: Attachment[] = [{ id: "image-1", name: "截图.png", type: "image", data: "aGVsbG8=", mimeType: "image/png" }];
   function renderInput(props: Partial<ComponentProps<typeof PromptInputBase>> = {}) {
     if (!container) {
       container = document.createElement("div");
@@ -45,10 +45,10 @@ describe("PromptInput", () => {
   it("纯图支持按钮和 Enter 发送，运行中加入队列而不中止", async () => {
     const onSubmit = vi.fn();
     const onAbort = vi.fn();
-    await renderInput({ images, onSubmit, onAbort });
+    await renderInput({ attachments, onSubmit, onAbort });
     expect(container!.querySelector<HTMLButtonElement>('[aria-label="发送任务"]')!.disabled).toBe(false);
     await act(() => container!.querySelector<HTMLButtonElement>('[aria-label="发送任务"]')!.click());
-    await renderInput({ images, onSubmit, onAbort, isRunning: true });
+    await renderInput({ attachments, onSubmit, onAbort, isRunning: true });
     expect(container!.querySelector('[aria-label="中止任务"]')).toBeNull();
     await act(() => { container!.querySelector('.ProseMirror')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
     expect(onSubmit).toHaveBeenCalledTimes(2);
@@ -57,28 +57,28 @@ describe("PromptInput", () => {
 
   it("读入图片时禁止按钮、表单和 Enter 提交，仍可编辑和移除", async () => {
     const onSubmit = vi.fn();
-    const onRemoveImage = vi.fn();
-    await renderInput({ value: "继续编辑", images, attachmentsLoading: true, onSubmit, onRemoveImage });
+    const onRemoveAttachment = vi.fn();
+    await renderInput({ value: "继续编辑", attachments, attachmentsLoading: true, onSubmit, onRemoveAttachment });
     expect(container!.querySelector<HTMLButtonElement>('[aria-label="发送任务"]')!.disabled).toBe(true);
     expect(container!.querySelector('.ProseMirror')!.getAttribute('contenteditable')).toBe('true');
-    expect(container!.querySelector('[role="status"]')!.textContent).toContain('正在读取图片');
+    expect(container!.querySelector('[role="status"]')!.textContent).toContain('正在读取附件');
     await act(() => {
       container!.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
       container!.querySelector('.ProseMirror')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-      container!.querySelector<HTMLButtonElement>('[aria-label="移除图片：截图.png"]')!.click();
+      container!.querySelector<HTMLButtonElement>('[aria-label="移除附件：截图.png"]')!.click();
     });
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(onRemoveImage).toHaveBeenCalledWith('image-1');
-    await renderInput({ images, onSubmit });
+    expect(onRemoveAttachment).toHaveBeenCalledWith('image-1');
+    await renderInput({ attachments, onSubmit });
     expect(container!.querySelector<HTMLButtonElement>('[aria-label="发送任务"]')!.disabled).toBe(false);
   });
 
   it("选择、粘贴和拖入文件统一回调，不写入编辑器 HTML", async () => {
-    const onAddImages = vi.fn();
+    const onAddFiles = vi.fn();
     const file = new File(['image'], '图片.png', { type: 'image/png' });
-    await renderInput({ onAddImages });
+    await renderInput({ onAddFiles });
     const input = container!.querySelector<HTMLInputElement>('input[type="file"]')!;
-    expect(input.accept).toBe('image/png,image/jpeg,image/webp,image/gif');
+    expect(input.accept).toBe('');
     expect(input.multiple).toBe(true);
     Object.defineProperty(input, 'files', { value: [file] });
     await act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -88,31 +88,29 @@ describe("PromptInput", () => {
       await act(() => { container!.querySelector('.ProseMirror')!.dispatchEvent(event); });
       expect(event.defaultPrevented).toBe(true);
     }
-    expect(onAddImages).toHaveBeenCalledTimes(3);
-    expect(onAddImages).toHaveBeenLastCalledWith([file]);
+    expect(onAddFiles).toHaveBeenCalledTimes(3);
+    expect(onAddFiles).toHaveBeenLastCalledWith([file]);
     expect(container!.querySelector('.ProseMirror img')).toBeNull();
   });
 
-  it("普通文本粘贴保留，截图按钮仅在提供回调时展示", async () => {
+  it("普通文本粘贴保留，附件按钮始终展示", async () => {
     const onChange = vi.fn();
-    const onAddImages = vi.fn();
-    const onCaptureScreenshot = vi.fn();
-    await renderInput({ onChange, onAddImages });
-    expect(container!.querySelector('[aria-label="截图"]')).toBeNull();
+    const onAddFiles = vi.fn();
+    await renderInput({ onChange, onAddFiles });
+    expect(container!.querySelector('[aria-label="添加附件"]')).not.toBeNull();
     const paste = new Event('paste', { bubbles: true, cancelable: true });
     Object.defineProperty(paste, 'clipboardData', { value: { files: [], types: ['text/plain'], getData: (type: string) => type === 'text/plain' ? '普通文本' : '' } });
     await act(() => { container!.querySelector('.ProseMirror')!.dispatchEvent(paste); });
     expect(onChange).toHaveBeenCalledWith('普通文本');
-    expect(onAddImages).not.toHaveBeenCalled();
-    await renderInput({ onCaptureScreenshot });
-    await act(() => container!.querySelector<HTMLButtonElement>('[aria-label="截图"]')!.click());
-    expect(onCaptureScreenshot).toHaveBeenCalledOnce();
+    expect(onAddFiles).not.toHaveBeenCalled();
+    await act(() => container!.querySelector<HTMLButtonElement>('[aria-label="添加附件"]')!.click());
+    expect(onAddFiles).not.toHaveBeenCalled();
   });
 
   it("纯图队列任务展示数量和缩略图", async () => {
-    await renderInput({ queuedTurns: [{ id: 'q-image', conversationId: 'c1', prompt: '', createdAt: 1, images }] });
+    await renderInput({ queuedTurns: [{ id: 'q-image', conversationId: 'c1', prompt: '', createdAt: 1, attachments }] });
     const queue = container!.querySelector('[data-slot="conversation-queue"]')!;
-    expect(queue.textContent).toContain('1 张图片');
+    expect(queue.textContent).toContain('1 个附件');
     expect(queue.querySelector('img')!.alt).toBe('截图.png');
   });
 

@@ -16,6 +16,7 @@ export const EMPTY_PI_CONVERSATION_STATE: PiConversationState = {
   extensionWidgets: {},
   extensionTitle: null,
   extensionEditorText: "",
+  goal: null,
 };
 
 export function applyPiRpcResponse(current: PiConversationState | undefined, event: Record<string, unknown>): PiConversationState {
@@ -126,6 +127,23 @@ export function applyPiExtensionUiRequest(current: PiConversationState | undefin
   }
 
   if (request.method === "set_editor_text") next.extensionEditorText = request.text;
+  return next;
+}
+
+export function applyPiGoalEvent(current: PiConversationState | undefined, event: Record<string, unknown>): PiConversationState {
+  const next = cloneConversationState(current);
+  const details = event.details as Record<string, unknown> | undefined;
+  const goal = details?.goal as Record<string, unknown> | undefined;
+  const kind = typeof details?.kind === "string" ? details.kind : "";
+  if (kind === "cleared" || !goal || typeof goal.objective !== "string") {
+    next.goal = null;
+    return next;
+  }
+  const status = typeof goal.status === "string" ? goal.status : "active";
+  next.goal = {
+    objective: goal.objective,
+    status: status === "paused" || status === "complete" || status === "budget_limited" ? status : "active",
+  };
   return next;
 }
 

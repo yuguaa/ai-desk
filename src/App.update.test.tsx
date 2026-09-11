@@ -33,7 +33,13 @@ vi.mock("@/components/mascot/Mascot", () => ({ Mascot: () => null, mascotImageFo
 vi.mock("@/hooks/use-app-settings", () => ({
   useAppSettings: () => ({ settings: DEFAULT_APP_SETTINGS, updateSettings: vi.fn(), resetSettings: vi.fn() }),
 }));
-vi.mock("@/lib/pi-bridge", () => ({ isTauriRuntime: () => true, isMacTauriRuntime: () => false }));
+vi.mock("@/lib/pi-bridge", () => ({
+  isTauriRuntime: () => true,
+  isMacTauriRuntime: () => false,
+  listPiPackages: () => Promise.resolve([]),
+  installPiPackage: () => Promise.resolve({ ok: true, message: "" }),
+  removePiPackage: () => Promise.resolve({ ok: true, message: "" }),
+}));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: mocks.getVersion }));
 vi.mock("@/lib/app-update", () => ({
   checkForAppUpdate: mocks.checkForAppUpdate,

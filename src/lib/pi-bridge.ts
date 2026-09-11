@@ -47,3 +47,29 @@ export function renamePiSession(sessionFile: string, name: string) {
   if (!isTauriRuntime()) return Promise.resolve();
   return invoke<void>("rename_pi_session", { sessionFile, name, timestamp: new Date().toISOString() });
 }
+
+export type PiPackageSummary = {
+  source: string;
+  scope: "global" | "project";
+  kind: "npm" | "git" | "local";
+};
+
+export type PiPackageCommandResult = {
+  ok: boolean;
+  message: string;
+};
+
+export function listPiPackages(cwd?: string) {
+  if (!isTauriRuntime()) return Promise.resolve<PiPackageSummary[]>([]);
+  return invoke<PiPackageSummary[]>("list_pi_packages", { cwd });
+}
+
+export function installPiPackage(source: string, local = false, cwd?: string) {
+  if (!isTauriRuntime()) return Promise.resolve<PiPackageCommandResult | null>(null);
+  return invoke<PiPackageCommandResult>("install_pi_package", { source, local, cwd });
+}
+
+export function removePiPackage(source: string, local = false, cwd?: string) {
+  if (!isTauriRuntime()) return Promise.resolve<PiPackageCommandResult | null>(null);
+  return invoke<PiPackageCommandResult>("remove_pi_package", { source, local, cwd });
+}

@@ -6,7 +6,7 @@ import { useEditor } from "@tiptap/react";
 import { toast } from "sonner";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { ImageAttachment } from "@/lib/image-attachments";
+import type { Attachment } from "@/lib/attachments";
 import type { PiModel } from "@/lib/pi-runtime";
 
 vi.mock("@tiptap/react", { spy: true });
@@ -49,7 +49,7 @@ function renderPanel(props: ComponentProps<typeof ChatPanel>) {
 }
 
 describe("ChatPanel 图片发送链", () => {
-  const images: ImageAttachment[] = [{ id: "image-1", name: "草稿.png", type: "image", data: "aGVsbG8=", mimeType: "image/png" }];
+  const attachments: Attachment[] = [{ id: "image-1", name: "草稿.png", type: "image", data: "aGVsbG8=", mimeType: "image/png" }];
   const imageModel: PiModel = { id: "vision", name: "Vision", provider: "provider", reasoning: false, contextWindow: 200_000, input: ["text", "image"] };
   const textModel: PiModel = { ...imageModel, input: ["text"] };
 
@@ -60,7 +60,7 @@ describe("ChatPanel 图片发送链", () => {
   });
 
   it.each([false, true])("纯图经按钮、Enter 和表单送达 onSend（运行中：%s）", async (isBusy) => {
-    const props = { ...createProps(), images, selectedModel: imageModel, draft: "", isBusy };
+    const props = { ...createProps(), attachments, selectedModel: imageModel, draft: "", isBusy };
     await act(() => renderPanel(props));
     const button = container!.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     expect(button.disabled).toBe(false);
@@ -78,7 +78,7 @@ describe("ChatPanel 图片发送链", () => {
     { selectedModel: textModel, message: "当前模型不支持图片" },
     { selectedModel: { ...imageModel, input: [] }, message: "当前模型不支持图片" },
   ])("含图时显示 $message，切换模型恢复同一份草稿", async ({ selectedModel, message }) => {
-    const props = { ...createProps(), images, isBusy: false, selectedModel, draft: "说明图片" };
+    const props = { ...createProps(), attachments, isBusy: false, selectedModel, draft: "说明图片" };
     await act(() => renderPanel(props));
     expect(toastError).toHaveBeenCalledWith(expect.stringContaining(message));
     expect(container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
@@ -98,10 +98,10 @@ describe("ChatPanel 图片发送链", () => {
     expect(props.onSend).toHaveBeenCalledOnce();
   });
 
-  it("不支持图片仍可添加、移除和截图，并透传读入错误", async () => {
+  it("不支持图片仍可添加、移除附件，并透传读入错误", async () => {
     const props = {
-      ...createProps(), images, isBusy: false, selectedModel: textModel,
-      onAddImages: vi.fn(), onRemoveImage: vi.fn(), onCaptureScreenshot: vi.fn(), attachmentError: "文件读取失败",
+      ...createProps(), attachments, isBusy: false, selectedModel: textModel,
+      onAddFiles: vi.fn(), onRemoveAttachment: vi.fn(), attachmentError: "文件读取失败",
     };
     await act(() => renderPanel(props));
     const input = container!.querySelector<HTMLInputElement>('input[type="file"]')!;
@@ -109,15 +109,13 @@ describe("ChatPanel 图片发送链", () => {
     Object.defineProperty(input, "files", { value: [file] });
     await act(() => {
       input.dispatchEvent(new Event("change", { bubbles: true }));
-      container!.querySelector<HTMLButtonElement>('[aria-label="移除图片：草稿.png"]')!.click();
-      container!.querySelector<HTMLButtonElement>('[aria-label="截图"]')!.click();
+      container!.querySelector<HTMLButtonElement>('[aria-label="移除附件：草稿.png"]')!.click();
     });
-    expect(props.onAddImages).toHaveBeenCalledWith([file]);
-    expect(props.onRemoveImage).toHaveBeenCalledWith("image-1");
-    expect(props.onCaptureScreenshot).toHaveBeenCalledOnce();
+    expect(props.onAddFiles).toHaveBeenCalledWith([file]);
+    expect(props.onRemoveAttachment).toHaveBeenCalledWith("image-1");
     expect(toastError).toHaveBeenCalledWith(expect.stringContaining("文件读取失败"));
     expect(toastError).toHaveBeenCalledWith(expect.stringContaining("不支持图片"));
-    await act(() => renderPanel({ ...props, images: [] }));
+    await act(() => renderPanel({ ...props, attachments: [] }));
     expect(toastError).toHaveBeenLastCalledWith("文件读取失败");
     expect(container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
     await act(() => container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
@@ -134,9 +132,9 @@ describe("ChatPanel 图片发送链", () => {
   });
 
   it("附件读取时阻止提交，读取结束后恢复纯图发送", async () => {
-    const props = { ...createProps(), images, draft: "", selectedModel: imageModel, isBusy: false };
+    const props = { ...createProps(), attachments, draft: "", selectedModel: imageModel, isBusy: false };
     await act(() => renderPanel({ ...props, attachmentsLoading: true }));
-    expect(container!.querySelector('[role="status"]')!.textContent).toContain("正在读取图片");
+    expect(container!.querySelector('[role="status"]')!.textContent).toContain("正在读取附件");
     expect(container!.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
     await act(() => { container!.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
     expect(props.onSend).not.toHaveBeenCalled();

@@ -2,9 +2,9 @@ import { memo, useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Input } from "@/components/ui/input";
-import { ImageAttachments } from "@/components/chat/ImageAttachments";
-import type { ImageAttachment } from "@/lib/image-attachments";
-import { ArrowUp, Brain, Check, ChevronDown, Cpu, FileImage, Monitor, Square } from "@/components/ui/icons";
+import { Attachments } from "@/components/chat/Attachments";
+import type { Attachment } from "@/lib/attachments";
+import { ArrowUp, Brain, Check, ChevronDown, Cpu, Paperclip, Square } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConversationQueue } from "@/components/chat/ConversationQueue";
@@ -18,7 +18,7 @@ type PromptModel = Pick<PiModel, "id" | "name" | "provider">;
 
 type PromptInputState = {
   value: string;
-  hasImages: boolean;
+  hasAttachments: boolean;
   attachmentsLoading: boolean;
   submitDisabled: boolean;
   isRunning?: boolean;
@@ -51,18 +51,16 @@ export function PromptInput({
   onRemoveQueuedTurn,
   onSteerQueuedTurn,
   onEditQueuedTurn,
-  images = [],
-  onAddImages,
-  onRemoveImage,
+  attachments = [],
+  onAddFiles,
+  onRemoveAttachment,
   attachmentsLoading = false,
-  onCaptureScreenshot,
 }: {
   value: string;
-  images?: ImageAttachment[];
-  onAddImages?: (files: File[]) => void;
-  onRemoveImage?: (id: string) => void;
+  attachments?: Attachment[];
+  onAddFiles?: (files: File[]) => void;
+  onRemoveAttachment?: (id: string) => void;
   attachmentsLoading?: boolean;
-  onCaptureScreenshot?: () => void;
   onChange: (value: string) => void;
   onSubmit: () => void;
   isRunning?: boolean;
@@ -87,10 +85,10 @@ export function PromptInput({
   onEditQueuedTurn?: (turnId: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const hasImages = images.length > 0;
-  const inputRef = useRef<PromptInputState>({ value, hasImages, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort });
-  inputRef.current = { value, hasImages, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort };
-  const action = isRunning && !value.trim() && !hasImages && !attachmentsLoading ? "中止任务" : editingQueuedTurnId ? "保存队列任务" : isRunning ? "加入队列" : "发送";
+  const hasAttachments = attachments.length > 0;
+  const inputRef = useRef<PromptInputState>({ value, hasAttachments, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort });
+  inputRef.current = { value, hasAttachments, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort };
+  const action = isRunning && !value.trim() && !hasAttachments && !attachmentsLoading ? "中止任务" : editingQueuedTurnId ? "保存队列任务" : isRunning ? "加入队列" : "发送";
 
   return (
     <>
@@ -102,7 +100,7 @@ export function PromptInput({
           /* 文件由附件层读取，阻止编辑器将图片写入正文。 */
           event.preventDefault();
           event.stopPropagation();
-          onAddImages?.(files);
+          onAddFiles?.(files);
         }}
         onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }}
         onDropCapture={(event) => {
@@ -110,24 +108,23 @@ export function PromptInput({
           if (!files.length) return;
           event.preventDefault();
           event.stopPropagation();
-          onAddImages?.(files);
+          onAddFiles?.(files);
         }}
         onSubmit={(event) => { event.preventDefault(); submitPrompt(inputRef.current); }} className={cn("overflow-hidden rounded-[var(--radius-composer)] border border-[var(--composer-border)] bg-[var(--composer-bg)] transition-[background-color,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:border-[var(--accent)] focus-within:bg-[var(--composer-bg-hover)]", className)}>
-      {hasImages && <div className="px-3 pt-3"><ImageAttachments images={images} onRemove={onRemoveImage} /></div>}
-      {attachmentsLoading && <p role="status" className="px-3 pt-3 text-[var(--font-size-11)] text-[var(--text-secondary)]">正在读取图片…</p>}
+      {hasAttachments && <div className="px-3 pt-3"><Attachments attachments={attachments} onRemove={onRemoveAttachment} /></div>}
+      {attachmentsLoading && <p role="status" className="px-3 pt-3 text-[var(--font-size-11)] text-[var(--text-secondary)]">正在读取附件…</p>}
       <PromptEditor value={value} placeholder={placeholder} action={action} inputRef={inputRef} />
       <div data-slot="prompt-toolbar" className="flex min-w-0 items-center justify-between gap-2 px-2 pb-2 pt-1">
         <div className="flex min-w-0 items-center gap-1">
           {footer}
-          {onAddImages && <>
-            <Input ref={fileInputRef} type="file" aria-label="选择图片附件" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden onChange={(event) => {
+          {onAddFiles && <>
+            <Input ref={fileInputRef} type="file" aria-label="选择附件" multiple hidden onChange={(event) => {
               const files = Array.from(event.currentTarget.files ?? []);
               event.currentTarget.value = "";
-              if (files.length) onAddImages(files);
+              if (files.length) onAddFiles(files);
             }} />
-            <Button type="button" variant="ghost" size="icon-xs" aria-label="添加图片" title="添加图片" onClick={() => fileInputRef.current?.click()}><FileImage size={14} /></Button>
+            <Button type="button" variant="ghost" size="icon-xs" aria-label="添加附件" title="添加附件" onClick={() => fileInputRef.current?.click()}><Paperclip size={14} /></Button>
           </>}
-          {onCaptureScreenshot && <Button type="button" variant="ghost" size="icon-xs" aria-label="截图" title="截图" onClick={onCaptureScreenshot}><Monitor size={14} /></Button>}
           <ModelMenu
             models={models}
             selectedModel={selectedModel}
@@ -145,7 +142,7 @@ export function PromptInput({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <ContextUsageRing usage={contextUsage} />
-          <ComposerActionButton hasContent={Boolean(value.trim()) || hasImages} attachmentsLoading={attachmentsLoading} submitDisabled={submitDisabled} isRunning={Boolean(isRunning)} isEditingQueue={Boolean(editingQueuedTurnId)} onAbort={onAbort} />
+          <ComposerActionButton hasContent={Boolean(value.trim()) || hasAttachments} attachmentsLoading={attachmentsLoading} submitDisabled={submitDisabled} isRunning={Boolean(isRunning)} isEditingQueue={Boolean(editingQueuedTurnId)} onAbort={onAbort} />
         </div>
       </div>
       </form>
@@ -199,10 +196,10 @@ const PromptEditor = memo(function PromptEditor({ value, placeholder, action, in
   </div>;
 });
 
-function submitPrompt({ value, hasImages, attachmentsLoading, submitDisabled, isRunning, onAbort, onSubmit }: PromptInputState) {
+function submitPrompt({ value, hasAttachments, attachmentsLoading, submitDisabled, isRunning, onAbort, onSubmit }: PromptInputState) {
   if (attachmentsLoading) return;
-  if (isRunning && !value.trim() && !hasImages) onAbort?.();
-  else if (!submitDisabled && (value.trim() || hasImages)) onSubmit();
+  if (isRunning && !value.trim() && !hasAttachments) onAbort?.();
+  else if (!submitDisabled && (value.trim() || hasAttachments)) onSubmit();
 }
 
 function ContextUsageRing({ usage }: { usage?: PiContextUsage | null }) {

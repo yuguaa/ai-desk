@@ -1,7 +1,8 @@
-import { IMAGE_MIME_TYPES, type ImageAttachment } from "@/lib/image-attachments";
+import { IMAGE_MIME_TYPES, type FileAttachment, type ImageAttachment } from "@/lib/attachments";
+import type { PiGoalState } from "@/lib/pi-runtime";
 
 export type TimelineItem =
-  | { id: string; type: "user"; text: string; time: string; images?: ImageAttachment[]; messageId?: string; contentIndex?: number }
+  | { id: string; type: "user"; text: string; time: string; images?: ImageAttachment[]; files?: FileAttachment[]; messageId?: string; contentIndex?: number }
   | { id: string; type: "assistant"; text: string; time: string; streaming?: boolean; messageId?: string; contentIndex?: number }
   | { id: string; type: "reasoning"; text: string; status?: "running" | "completed"; messageId?: string; contentIndex?: number }
   | { id: string; type: "tool"; name: string; command: string; output: string; status: "completed" | "running" | "error"; messageId?: string; contentIndex?: number; toolCallId?: string };
@@ -107,6 +108,23 @@ export function projectPiSession(entries: SessionEntry[]): TimelineItem[] {
   });
 
   return output;
+}
+
+export function goalFromSessionEntries(entries: SessionEntry[]): PiGoalState | null {
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index];
+    if (entry.type !== "custom_message" || entry.customType !== "pi-goal-event") continue;
+    const details = entry.details as Record<string, unknown> | undefined;
+    const goal = details?.goal as Record<string, unknown> | undefined;
+    const kind = typeof details?.kind === "string" ? details.kind : "";
+    if (kind === "cleared" || !goal || typeof goal.objective !== "string") return null;
+    const status = typeof goal.status === "string" ? goal.status : "active";
+    return {
+      objective: goal.objective,
+      status: status === "paused" || status === "complete" || status === "budget_limited" ? status : "active",
+    };
+  }
+  return null;
 }
 
 function projectAssistantMessage(

@@ -8,7 +8,7 @@ import {
   saveConversationTurnChanges,
 } from "@/lib/conversation-changes";
 import type { GitStatus } from "@/types/workspace";
-import type { ImageAttachment } from "@/lib/image-attachments";
+import type { ImageAttachment } from "@/lib/attachments";
 
 const baseStatus: GitStatus = {
   branch: "main",

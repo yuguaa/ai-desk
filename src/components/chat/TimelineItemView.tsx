@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import { MessageCopyButton } from "@/components/chat/MessageCopyButton";
-import { ImageAttachments } from "@/components/chat/ImageAttachments";
+import { Attachments } from "@/components/chat/Attachments";
 import { Reasoning } from "@/components/ai-elements/reasoning";
 import { Tool } from "@/components/ai-elements/tool";
 import type { TimelineItem } from "@/lib/pi-session";
@@ -16,7 +16,7 @@ const TimelineItemContent = memo(function TimelineItemContent(item: TimelineItem
     return (
       <Message from="user" className="py-4 pt-6">
         <div className="flex min-w-0 max-w-[80%] flex-col items-end gap-1.5">
-          {item.images && item.images.length > 0 && <ImageAttachments images={item.images} />}
+          {((item.images?.length ?? 0) > 0 || (item.files?.length ?? 0) > 0) && <Attachments attachments={[...(item.images ?? []), ...(item.files ?? [])]} />}
           {item.text.trim() && <MessageContent className="rounded-[var(--radius-md)] border border-[var(--border-subtle)] bg-[var(--bg-surface-raised)] px-3 py-2 text-[var(--font-size-13)] leading-5 text-[var(--text-primary)]"><MessageResponse>{item.text}</MessageResponse></MessageContent>}
           <div data-slot="user-message-meta" className="flex items-center justify-end gap-1.5">
             {item.text.trim() && <MessageCopyButton text={item.text} />}

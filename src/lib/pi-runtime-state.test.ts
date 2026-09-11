@@ -3,6 +3,7 @@ import type { PiConversationState } from "@/lib/pi-runtime";
 import {
   applyPiError,
   applyPiExtensionUiRequest,
+  applyPiGoalEvent,
   applyPiProcessStderr,
   applyPiRpcResponse,
   clearActiveExtensionRequest,
@@ -197,6 +198,30 @@ function createPopulatedState(): PiConversationState {
     extensionWidgets: { review: { key: "review", lines: ["line"], placement: "aboveEditor" } },
   };
 }
+
+describe("applyPiGoalEvent", () => {
+  it("从 pi-goal 自定义消息提取目标与状态", () => {
+    const state = applyPiGoalEvent(undefined, {
+      role: "custom",
+      customType: "pi-goal-event",
+      details: { kind: "active", goal: { objective: "完善插件", status: "active" } },
+    });
+    expect(state.goal).toEqual({ objective: "完善插件", status: "active" });
+  });
+
+  it("cleared 事件清除已有目标", () => {
+    const state = applyPiGoalEvent(
+      { ...EMPTY_PI_CONVERSATION_STATE, goal: { objective: "完善插件", status: "active" } },
+      { details: { kind: "cleared", goal: { objective: "完善插件", status: "active" } } },
+    );
+    expect(state.goal).toBeNull();
+  });
+
+  it("缺少目标字段时清空目标", () => {
+    const state = applyPiGoalEvent(undefined, { role: "custom", customType: "pi-goal-event", details: { kind: "active" } });
+    expect(state.goal).toBeNull();
+  });
+});
 
 function freezeState(value: object) {
   Object.values(value).forEach((child) => {

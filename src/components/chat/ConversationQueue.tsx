@@ -1,6 +1,7 @@
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
-import { GripVertical, LayoutList, Pencil, X } from "@/components/ui/icons";
+import { GripVertical, LayoutList, Pencil, FileText, X } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
+import { isImageAttachment } from "@/lib/attachments";
 import { reorderConversationQueue, type QueuedConversationTurn } from "@/lib/conversation-queue";
 
 export function ConversationQueue({ turns, editingTurnId, onReorder, onRemove, onSteer, onEdit }: { turns: QueuedConversationTurn[]; editingTurnId?: string | null; onReorder?: (sourceId: string, targetId: string) => void; onRemove?: (turnId: string) => void; onSteer?: (turnId: string) => void; onEdit?: (turnId: string) => void }) {
@@ -73,9 +74,11 @@ export function ConversationQueue({ turns, editingTurnId, onReorder, onRemove, o
           onDragEnd={() => { setDraggingId(""); setDragOverId(""); }}
           onKeyDown={(event) => moveByKeyboard(event, turnIndex)}
         ><GripVertical size={13} /></Button>
-        {!!turn.images?.length && <>
-          <img src={`data:${turn.images[0].mimeType};base64,${turn.images[0].data}`} alt={turn.images[0].name} draggable={false} className="size-7 shrink-0 rounded-[var(--radius-sm)] object-cover" />
-          <span className="shrink-0 text-[var(--text-tertiary)]">{turn.images.length} 张图片</span>
+        {!!turn.attachments?.length && <>
+          {isImageAttachment(turn.attachments[0])
+            ? <img src={`data:${turn.attachments[0].mimeType};base64,${turn.attachments[0].data}`} alt={turn.attachments[0].name} draggable={false} className="size-7 shrink-0 rounded-[var(--radius-sm)] object-cover" />
+            : <FileText size={13} className="shrink-0 text-[var(--text-tertiary)]" />}
+          <span className="shrink-0 text-[var(--text-tertiary)]">{turn.attachments.length} 个附件</span>
         </>}
         <span className="min-w-0 flex-1 truncate text-[var(--text-secondary)]" title={turn.prompt}>{turn.prompt}</span>
         <Button type="button" variant="ghost" size="icon-xs" disabled={queueLocked} aria-label={editingTurnId === turn.id ? `正在编辑队列任务：${turn.prompt}` : `编辑队列任务：${turn.prompt}`} title={editingTurnId === turn.id ? "正在编辑" : "编辑"} className="text-[var(--text-tertiary)]" onClick={() => onEdit?.(turn.id)}><Pencil size={12} /></Button>
