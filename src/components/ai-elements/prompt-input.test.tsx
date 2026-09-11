@@ -15,6 +15,22 @@ Reflect.set(globalThis, "ResizeObserver", class {
   disconnect() {}
 });
 
+// jsdom 缺少 getClientRects，Tiptap 滚动定位需要（元素、文本节点与 Range 都会调用）
+const emptyRectList = [] as unknown as DOMRectList;
+const emptyRect = { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+Element.prototype.getClientRects = function getClientRects() {
+  return emptyRectList;
+};
+(Text.prototype as unknown as { getClientRects: () => DOMRectList }).getClientRects = function getClientRects() {
+  return emptyRectList;
+};
+Range.prototype.getClientRects = function getClientRects() {
+  return emptyRectList;
+};
+Range.prototype.getBoundingClientRect = function getBoundingClientRect() {
+  return emptyRect;
+};
+
 // 包装 TooltipProvider：radix Tooltip 必须在 Provider 内使用
 function PromptInput(props: ComponentProps<typeof PromptInputBase>) {
   return <TooltipProvider delayDuration={0}><PromptInputBase {...props} /></TooltipProvider>;
@@ -420,5 +436,148 @@ describe("PromptInput", () => {
     });
 
     expect(onReorderQueuedTurn).toHaveBeenCalledWith("q2", "q1");
+  });
+
+  describe("斜杠命令菜单", () => {
+    function pasteText(text: string) {
+      const paste = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, "clipboardData", { value: { files: [], types: ["text/plain"], getData: () => text } });
+      return act(async () => { container!.querySelector(".ProseMirror")!.dispatchEvent(paste); });
+    }
+
+    it("输入 / 弹出内置与 pi 动态命令提示", async () => {
+      const onChange = vi.fn();
+      await renderInput({
+        onChange,
+        slashCommands: [
+          { name: "goal", description: "长跑目标", source: "extension" },
+          { name: "skill:vue", description: "Vue 技能", source: "skill" },
+        ],
+      });
+      await pasteText("/");
+
+      const menu = container!.querySelector('[data-slot="slash-command-menu"]');
+      expect(menu).not.toBeNull();
+      expect(menu!.textContent).toContain("/new");
+      expect(menu!.textContent).toContain("/goal");
+      expect(menu!.textContent).toContain("/skill:vue");
+      expect(menu!.textContent).toContain("开始新会话");
+      expect(onChange).toHaveBeenLastCalledWith("/");
+    });
+
+    it("按查询词过滤命令，Esc 关闭菜单", async () => {
+      await renderInput({
+        slashCommands: [{ name: "goal", description: "长跑目标", source: "extension" }],
+      });
+      await pasteText("/co");
+      const menu = container!.querySelector('[data-slot="slash-command-menu"]');
+      expect(menu!.textContent).toContain("/compact");
+      expect(menu!.textContent).not.toContain("/goal");
+
+      await act(async () => {
+        container!.querySelector(".ProseMirror")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      expect(container!.querySelector('[data-slot="slash-command-menu"]')).toBeNull();
+    });
+
+    it("上下键导航，Enter 插入命令文本并关闭菜单", async () => {
+      const onChange = vi.fn();
+      await renderInput({
+        onChange,
+        slashCommands: [{ name: "goal", description: "长跑目标", source: "extension" }],
+      });
+      await pasteText("/");
+      const editor = container!.querySelector(".ProseMirror")!;
+
+      /* 下移一次选到第二项 /name，回车插入并保留编辑器焦点继续输入参数 */
+      await act(async () => {
+        editor.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+        editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+
+      expect(onChange).toHaveBeenLastCalledWith("/name ");
+      expect(container!.querySelector('[data-slot="slash-command-menu"]')).toBeNull();
+      /* 菜单已关闭，再次 Enter 走正常发送路径 */
+      const onSubmit = vi.fn();
+      await renderInput({ value: "/name ", onSubmit });
+      await act(async () => {
+        container!.querySelector(".ProseMirror")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      expect(onSubmit).toHaveBeenCalled();
+    });
+
+    it("命令名后输入参数时隐藏菜单", async () => {
+      await renderInput();
+      await pasteText("/name arg");
+      expect(container!.querySelector('[data-slot="slash-command-menu"]')).toBeNull();
+    });
+
+    it("点击菜单项插入命令文本", async () => {
+      const onChange = vi.fn();
+      await renderInput({ onChange, slashCommands: [{ name: "goal", description: "长跑目标", source: "extension" }] });
+      await pasteText("/");
+
+      const goalItem = Array.from(container!.querySelectorAll<HTMLButtonElement>("[role='option']")).find((button) => button.textContent?.includes("/goal"))!;
+      await act(async () => goalItem.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+
+      expect(onChange).toHaveBeenLastCalledWith("/goal ");
+      expect(container!.querySelector('[data-slot="slash-command-menu"]')).toBeNull();
+    });
+
+    it("选择无参数命令 /new 后菜单保持关闭，再次 Enter 不重开菜单", async () => {
+      const onSubmit = vi.fn();
+      await renderInput({ onSubmit });
+      await pasteText("/");
+      const editor = container!.querySelector(".ProseMirror")!;
+
+      await act(async () => {
+        editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      expect(container!.querySelector('[data-slot="slash-command-menu"]')).toBeNull();
+
+      /* 菜单已关闭，/new 随草稿走正常提交路径 */
+      await renderInput({ value: "/new", onSubmit });
+      await act(async () => {
+        container!.querySelector(".ProseMirror")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      expect(container!.querySelector('[data-slot="slash-command-menu"]')).toBeNull();
+      expect(onSubmit).toHaveBeenCalledOnce();
+    });
+
+    it("无匹配命令时 Enter 放行正常提交", async () => {
+      const onSubmit = vi.fn();
+      await renderInput({ value: "/foo", onSubmit });
+      await pasteText("/foo");
+      await act(async () => {
+        container!.querySelector(".ProseMirror")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      expect(onSubmit).toHaveBeenCalledOnce();
+    });
+
+    it("中文输入法组合确认的 Enter 不触发菜单插入", async () => {
+      const onChange = vi.fn();
+      await renderInput({ onChange, slashCommands: [{ name: "goal", description: "长跑目标", source: "extension" }] });
+      await pasteText("/");
+
+      const composing = new KeyboardEvent("keydown", { key: "Enter", bubbles: true });
+      Object.defineProperty(composing, "isComposing", { value: true });
+      await act(async () => {
+        container!.querySelector(".ProseMirror")!.dispatchEvent(composing);
+      });
+
+      /* 组合确认不插入任何命令文本 */
+      expect(onChange.mock.calls.flat().every((text) => !text.startsWith("/new") && !text.startsWith("/name ") && !text.startsWith("/goal "))).toBe(true);
+    });
+
+    it("编辑器失焦时关闭菜单", async () => {
+      await renderInput();
+      await pasteText("/");
+      expect(container!.querySelector('[data-slot="slash-command-menu"]')).not.toBeNull();
+
+      await act(async () => {
+        container!.querySelector(".ProseMirror")!.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      });
+      expect(container!.querySelector('[data-slot="slash-command-menu"]')).toBeNull();
+    });
   });
 });

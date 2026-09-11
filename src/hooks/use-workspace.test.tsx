@@ -3,6 +3,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() } }));
+import { toast } from "sonner";
+
 const bridge = vi.hoisted(() => ({
   runtime: true,
   projects: [
@@ -83,6 +86,8 @@ let workspaceRenderCount = 0;
 
 beforeEach(() => {
   localStorage.clear();
+  vi.mocked(toast.error).mockClear();
+  vi.mocked(toast.success).mockClear();
   bridge.runtime = true;
   bridge.session = null;
   bridge.readPiSession.mockReset().mockImplementation(() => Promise.resolve(bridge.session));
@@ -596,7 +601,7 @@ describe("useWorkspace", () => {
       await Promise.resolve();
     });
 
-    ["get_state", "get_available_models", "get_available_thinking_levels", "get_session_stats"].forEach((commandType) => {
+    ["get_state", "get_available_models", "get_available_thinking_levels", "get_session_stats", "get_commands"].forEach((commandType) => {
       const command = findLastCommand(commandType);
       emitEvent("c1", { type: "response", id: command.command.id, command: commandType, success: true, data: {} });
     });
@@ -608,6 +613,110 @@ describe("useWorkspace", () => {
     expect(workspace?.activeProjectTrusted).toBe(true);
     expect(runtime.stopPiProcess).toHaveBeenCalledWith("c1");
     expect(runtime.startPiProcess).toHaveBeenCalledWith("c1", "/workspace/demo", "/tmp/c1.jsonl", true);
+  });
+
+  describe("本地斜杠命令", () => {
+    it("/new 新建会话并清空草稿，不发送给 pi", async () => {
+      bridge.projects[0].conversations = [];
+      await mountWorkspace();
+      act(() => workspace!.setDraft("/new"));
+      act(() => workspace!.sendMessage());
+
+      expect(workspace!.activeConversationId).not.toBe("");
+      expect(workspace!.draft).toBe("");
+      expect(hasSentCommand("prompt")).toBe(false);
+    });
+
+    it("/name 重命名当前会话并清空草稿", async () => {
+      await mountWorkspace();
+      act(() => workspace!.selectConversation(workspace!.conversations[0]));
+      act(() => workspace!.setDraft("/name 修复滚动问题"));
+      act(() => workspace!.sendMessage());
+      await act(async () => { await Promise.resolve(); });
+
+      expect(bridge.renamePiSession).toHaveBeenCalledWith("/tmp/c1.jsonl", "修复滚动问题");
+      expect(workspace!.draft).toBe("");
+      expect(hasSentCommand("prompt")).toBe(false);
+    });
+
+    it("/name 缺参数时提示用法并保留草稿", async () => {
+      await mountWorkspace();
+      act(() => workspace!.selectConversation(workspace!.conversations[0]));
+      act(() => workspace!.setDraft("/name"));
+      act(() => workspace!.sendMessage());
+
+      expect(vi.mocked(toast.error)).toHaveBeenCalledWith("用法：/name <名称>");
+      expect(workspace!.draft).toBe("/name");
+      expect(bridge.renamePiSession).not.toHaveBeenCalled();
+    });
+
+    it("/compact 转发 compact RPC，支持附加指令", async () => {
+      runtime.processList = [{ conversationId: "c1", pid: 101, running: true, busy: false }];
+      await mountWorkspace();
+      act(() => workspace!.selectConversation(workspace!.conversations[0]));
+      act(() => workspace!.setDraft("/compact 保留架构决策"));
+      act(() => workspace!.sendMessage());
+      await act(async () => { await Promise.resolve(); });
+
+      expect(hasSentCommand("compact")).toBe(true);
+      expect(lastCommand().command).toMatchObject({ type: "compact", customInstructions: "保留架构决策" });
+      expect(workspace!.draft).toBe("");
+    });
+
+    it("/copy 复制最后一条回复并提示成功", async () => {
+      const writeText = vi.fn(() => Promise.resolve());
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      runtime.processList = [{ conversationId: "c1", pid: 101, running: true, busy: false }];
+      await mountWorkspace();
+      act(() => workspace!.selectConversation(workspace!.conversations[0]));
+      act(() => workspace!.setDraft("/copy"));
+      act(() => workspace!.sendMessage());
+      await act(async () => { await Promise.resolve(); });
+
+      const command = findLastCommand("get_last_assistant_text");
+      emitEvent(command.conversationId, { type: "response", id: command.command.id, command: "get_last_assistant_text", success: true, data: { text: "最后一条回复" } });
+      await act(async () => { await Promise.resolve(); });
+
+      expect(writeText).toHaveBeenCalledWith("最后一条回复");
+      expect(vi.mocked(toast.success)).toHaveBeenCalledWith("已复制最后一条 AI 回复");
+      expect(workspace!.draft).toBe("");
+    });
+
+    it("非本地命令 /goal 不被拦截，正常走发送路径", async () => {
+      bridge.projects[0].conversations = [];
+      await mountWorkspace();
+      act(() => workspace!.setDraft("/goal 完善插件"));
+      act(() => workspace!.sendMessage());
+      await act(async () => { await Promise.resolve(); });
+
+      /* 响应进程就绪后的状态同步 RPC，发送链才会继续 */
+      ["get_state", "get_available_models", "get_available_thinking_levels", "get_session_stats", "get_commands"].forEach((commandType) => {
+        const command = findLastCommand(commandType);
+        emitEvent(command.conversationId, { type: "response", id: command.command.id, command: commandType, success: true, data: {} });
+      });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+      expect(hasSentCommand("prompt")).toBe(true);
+      expect(findLastCommand("prompt").command).toMatchObject({ type: "prompt", message: "/goal 完善插件" });
+      expect(workspace!.draft).toBe("");
+    });
+
+    it("/new 带参数时不拦截，交给模型", async () => {
+      bridge.projects[0].conversations = [];
+      await mountWorkspace();
+      act(() => workspace!.setDraft("/new 命令是干什么的"));
+      act(() => workspace!.sendMessage());
+      await act(async () => { await Promise.resolve(); });
+
+      ["get_state", "get_available_models", "get_available_thinking_levels", "get_session_stats", "get_commands"].forEach((commandType) => {
+        const command = findLastCommand(commandType);
+        emitEvent(command.conversationId, { type: "response", id: command.command.id, command: commandType, success: true, data: {} });
+      });
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+      expect(hasSentCommand("prompt")).toBe(true);
+      expect(findLastCommand("prompt").command).toMatchObject({ type: "prompt", message: "/new 命令是干什么的" });
+    });
   });
 
   it("切换会话时停止上一空闲进程，但保留 busy 会话并行", async () => {

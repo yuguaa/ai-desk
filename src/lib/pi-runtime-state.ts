@@ -1,4 +1,5 @@
 import type { PiContextUsage, PiConversationState, PiExtensionDialogRequest, PiExtensionRequest, PiExtensionWidget, PiModel } from "@/lib/pi-runtime";
+import { normalizeSlashCommand } from "@/lib/slash-commands";
 
 export const EMPTY_PI_CONVERSATION_STATE: PiConversationState = {
   model: null,
@@ -17,6 +18,7 @@ export const EMPTY_PI_CONVERSATION_STATE: PiConversationState = {
   extensionTitle: null,
   extensionEditorText: "",
   goal: null,
+  slashCommands: [],
 };
 
 export function applyPiRpcResponse(current: PiConversationState | undefined, event: Record<string, unknown>): PiConversationState {
@@ -48,6 +50,7 @@ export function applyPiRpcResponse(current: PiConversationState | undefined, eve
   }
   if (command === "get_session_stats") next.contextUsage = normalizePiContextUsage(data.contextUsage) ?? initialContextUsage(next.model);
   if (command === "set_thinking_level" && typeof data.level === "string") next.thinkingLevel = data.level;
+  if (command === "get_commands") next.slashCommands = Array.isArray(data.commands) ? data.commands.map(normalizeSlashCommand).filter((command) => command !== null) : [];
   return next;
 }
 

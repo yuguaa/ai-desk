@@ -178,6 +178,25 @@ describe("Pi runtime state", () => {
     expect(nextRequest.activeExtensionRequest?.id).toBe("req-2");
     expect(clearActiveExtensionRequest(nextRequest, "req-2").activeExtensionRequest).toBeNull();
   });
+
+  it("get_commands 响应存入斜杠命令列表并过滤非法项", () => {
+    const state = applyPiRpcResponse(undefined, {
+      command: "get_commands",
+      success: true,
+      data: {
+        commands: [
+          { name: "goal", description: "长跑目标", source: "extension" },
+          { name: "skill:vue", source: "skill" },
+          { name: "", source: "extension" },
+          "bad-value",
+        ],
+      },
+    });
+    expect(state.slashCommands).toEqual([
+      { name: "goal", description: "长跑目标", source: "extension" },
+      { name: "skill:vue", description: "", source: "skill" },
+    ]);
+  });
 });
 
 function createPopulatedState(): PiConversationState {

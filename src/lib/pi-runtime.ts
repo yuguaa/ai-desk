@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { isTauriRuntime } from "@/lib/pi-bridge";
+import type { SlashCommand } from "@/lib/slash-commands";
 
 export type PiProcessStatus = {
   conversationId: string;
@@ -87,6 +88,7 @@ export type PiConversationState = {
   extensionTitle: string | null;
   extensionEditorText: string;
   goal: PiGoalState | null;
+  slashCommands: SlashCommand[];
 };
 
 export function startPiProcess(conversationId: string, cwd: string, sessionFile?: string, projectTrusted?: boolean) {

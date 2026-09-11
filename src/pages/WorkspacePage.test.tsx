@@ -18,7 +18,7 @@ const workspace = vi.hoisted(() => ({
   draft: "",
   attachmentDraft: { attachments: [], pending: 0, error: null, addFiles: vi.fn(), remove: vi.fn() },
   queuedTurns: [],
-  conversationState: { availableModels: [], model: "", thinkingLevel: "", availableThinkingLevels: [], goal: null as null | { objective: string; status: string } },
+  conversationState: { availableModels: [], model: "", thinkingLevel: "", availableThinkingLevels: [], goal: null as null | { objective: string; status: string }, slashCommands: [] as { name: string; description: string; source: string }[] },
   runtimeIsTauri: false,
   activeExtensionRequest: null,
   extensionNotifications: [],
@@ -88,6 +88,7 @@ afterEach(() => {
   workspace.activeProject = { id: "/demo", name: "demo", path: "/demo" };
   workspace.draft = "";
   workspace.conversationState.goal = null;
+  workspace.conversationState.slashCommands = [];
   vi.clearAllMocks();
 });
 
@@ -111,6 +112,15 @@ describe("WorkspacePage panel layout", () => {
 
     expect(vi.mocked(ChatPanel).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       goal: { objective: "修复滚动", status: "active" },
+    }));
+  });
+
+  it("把 pi 动态斜杠命令传给 ChatPanel 作为输入提示", () => {
+    workspace.conversationState.slashCommands = [{ name: "goal", description: "长跑目标", source: "extension" }];
+    renderToStaticMarkup(<WorkspacePage onOpenSettings={vi.fn()} />);
+
+    expect(vi.mocked(ChatPanel).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      slashCommands: [{ name: "goal", description: "长跑目标", source: "extension" }],
     }));
   });
 

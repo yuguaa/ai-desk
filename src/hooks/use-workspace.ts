@@ -1,4 +1,5 @@
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useAttachments } from "@/hooks/use-attachments";
 import { appendFileContents, imageContents, isImageAttachment, type Attachment, type FileAttachment } from "@/lib/attachments";
 import { isTauriRuntime, listPiProjects, readPiSession, renamePiSession } from "@/lib/pi-bridge";
@@ -35,6 +36,7 @@ import {
 import { pickProjectDirectory } from "@/lib/workspace-bridge";
 import { addProjectPreference, archiveConversationPreference, isProjectTrusted, loadWorkspacePreferences, normalizeProjectPath, removeProjectPreference, saveWorkspacePreferences, setConversationPinnedPreference, setProjectCollapsedPreference, setProjectTrustedPreference } from "@/lib/workspace-preferences";
 import { formatMessageTime, goalFromSessionEntries, projectPiSession, textFromContent, type TimelineItem } from "@/lib/pi-session";
+import { parseLocalSlashCommand, type LocalSlashCommand } from "@/lib/slash-commands";
 import type { ConversationRecord, Project } from "@/types/workspace";
 
 type TimelineMap = Record<string, TimelineItem[]>;
@@ -230,6 +232,7 @@ export function useWorkspace() {
     sendRpcCommand(conversationId, { type: "get_available_models" }),
     sendRpcCommand(conversationId, { type: "get_available_thinking_levels" }),
     sendRpcCommand(conversationId, { type: "get_session_stats" }),
+    sendRpcCommand(conversationId, { type: "get_commands" }),
   ]).then(() => undefined);
 
   const refreshContextUsage = (conversationId: string) => sendRpcCommand(conversationId, { type: "get_session_stats" }).then(() => undefined);
@@ -1048,6 +1051,57 @@ export function useWorkspace() {
       .catch(() => undefined);
   }
 
+  /* 执行 GUI 能本地完成的斜杠命令，其余命令由 pi 进程在发送路径中处理。
+     返回是否已成功执行：失败时保留草稿供用户修正。 */
+  function executeLocalSlashCommand(command: LocalSlashCommand): boolean {
+    if (command.name === "new") {
+      createConversation(activeProjectId);
+      return true;
+    }
+    if (command.name === "name") {
+      if (!activeConversationId) {
+        toast.error("当前没有可重命名的会话");
+        return false;
+      }
+      if (!command.args) {
+        toast.error("用法：/name <名称>");
+        return false;
+      }
+      renameConversation(activeConversationId, command.args);
+      return true;
+    }
+    const conversation = activeConversation;
+    if (!conversation) {
+      toast.error("当前没有活跃会话");
+      return false;
+    }
+    if (command.name === "compact") {
+      ensureProcess(conversation)
+        .then(() => sendRpcCommand(conversation.id, { type: "compact", ...(command.args ? { customInstructions: command.args } : {}) }))
+        .catch(() => undefined);
+      return true;
+    }
+    if (command.name === "copy") {
+      ensureProcess(conversation)
+        .then(() => sendRpcCommand(conversation.id, { type: "get_last_assistant_text" }))
+        .then((response: Record<string, unknown> | undefined) => {
+          const data = response && response.data && typeof response.data === "object" ? response.data as Record<string, unknown> : {};
+          const text = typeof data.text === "string" ? data.text : "";
+          if (!text.trim()) {
+            toast.error("没有可复制的回复");
+            return;
+          }
+          return navigator.clipboard.writeText(text).then(
+            () => toast.success("已复制最后一条 AI 回复"),
+            () => toast.error("复制失败，请检查剪贴板权限"),
+          );
+        })
+        .catch(() => undefined);
+      return true;
+    }
+    return false;
+  }
+
   function updateConversationSummary(conversation: ConversationRecord, text: string, modifiedAt: string) {
     const nextConversations = sortConversationsByPinned(conversationsRef.current.map((item) => item.id === conversation.id ? { ...item, title: item.title === "新对话" ? text.slice(0, 22) : item.title, preview: text, time: "刚刚", modifiedAt } : item), workspacePreferencesRef.current.pinnedConversationIds);
     conversationsRef.current = nextConversations;
@@ -1167,6 +1221,15 @@ export function useWorkspace() {
     const attachments = attachmentDraft.attachments;
     const images = attachments.filter(isImageAttachment);
     if ((!text && !attachments.length) || !activeProject.id || attachmentDraft.pending) return;
+    /* 斜杠命令发送拦截：本地命令在 GUI 执行，扩展/技能命令仍交给 pi 进程。 */
+    const localCommand = parseLocalSlashCommand(text);
+    if (localCommand) {
+      if (executeLocalSlashCommand(localCommand)) {
+        setDraft("");
+        attachmentDraft.clear();
+      }
+      return;
+    }
     if (images.length && !activeConversationState.model?.input?.includes("image")) {
       attachmentDraft.setError("当前模型不支持图片或模型信息尚未就绪，请选择支持图片的模型");
       return;

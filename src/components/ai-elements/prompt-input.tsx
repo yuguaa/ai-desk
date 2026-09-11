@@ -1,8 +1,9 @@
-import { memo, useEffect, useRef, type ReactNode, type RefObject } from "react";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Input } from "@/components/ui/input";
 import { Attachments } from "@/components/chat/Attachments";
+import { SlashCommandMenu } from "@/components/chat/SlashCommandMenu";
 import type { Attachment } from "@/lib/attachments";
 import { ArrowUp, Brain, Check, ChevronDown, Cpu, Paperclip, Square } from "@/components/ui/icons";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadio
 import type { QueuedConversationTurn } from "@/lib/conversation-queue";
 import { contextUsageLabel, piModelDescription, piModelKey, piModelName, thinkingLevelDescription, thinkingLevelLabel } from "@/lib/pi-model-presentation";
 import type { PiContextUsage, PiModel } from "@/lib/pi-runtime";
+import { combineSlashCommands, filterSlashCommands, slashCommandText, type SlashCommand } from "@/lib/slash-commands";
 import { cn } from "@/lib/utils";
 
 type PromptModel = Pick<PiModel, "id" | "name" | "provider">;
@@ -25,6 +27,12 @@ type PromptInputState = {
   onChange: (value: string) => void;
   onSubmit: () => void;
   onAbort?: () => void;
+  /* 编辑器文本/光标变化时刷新斜杠菜单状态 */
+  onSlashInput?: (editor: Editor) => void;
+  /* 斜杠菜单打开时拦截方向键、Enter 与 Esc */
+  handleSlashMenuKey?: (event: KeyboardEvent) => boolean;
+  /* 编辑器失焦时关闭斜杠菜单 */
+  onSlashBlur?: () => void;
 };
 
 export function PromptInput({
@@ -45,6 +53,7 @@ export function PromptInput({
   runtimeAvailable = true,
   queuedTurns = [],
   editingQueuedTurnId,
+  slashCommands = [],
   onModelChange,
   onThinkingChange,
   onReorderQueuedTurn,
@@ -77,6 +86,7 @@ export function PromptInput({
   runtimeAvailable?: boolean;
   queuedTurns?: QueuedConversationTurn[];
   editingQueuedTurnId?: string | null;
+  slashCommands?: SlashCommand[];
   onModelChange?: (modelKey: string) => void;
   onThinkingChange?: (level: string) => void;
   onReorderQueuedTurn?: (sourceId: string, targetId: string) => void;
@@ -86,8 +96,79 @@ export function PromptInput({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasAttachments = attachments.length > 0;
+  const editorRef = useRef<Editor | null>(null);
+  /* 插入命令文本后，同一事务内的 onUpdate/selectionUpdate 会重新把菜单带开，用计数器抑制到下个宏任务。 */
+  const suppressSlashMenuRef = useRef(0);
+  /* 斜杠菜单：/ 触发，展示内置与 pi 动态命令，键盘上下选择、Enter 插入、Esc 关闭。 */
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [slashMenuQuery, setSlashMenuQuery] = useState("");
+  const [slashMenuActive, setSlashMenuActive] = useState(0);
+  const availableSlashCommands = useMemo(() => combineSlashCommands(slashCommands), [slashCommands]);
+  const filteredSlashCommands = useMemo(() => filterSlashCommands(availableSlashCommands, slashMenuQuery), [availableSlashCommands, slashMenuQuery]);
+  /* 菜单交互状态同步进 ref，保证同一 tick 内连续按键读到最新值。 */
+  const slashMenuRef = useRef({ open: false, commands: filteredSlashCommands, active: 0 });
+  slashMenuRef.current = { open: slashMenuOpen, commands: filteredSlashCommands, active: slashMenuActive };
+
+  const insertSlashCommand = (command: SlashCommand) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    suppressSlashMenuRef.current += 1;
+    const { $from } = editor.state.selection;
+    /* 替换光标所在行首的 /片段 为完整命令文本。 */
+    editor.chain().focus().deleteRange({ from: $from.start(1), to: $from.pos }).insertContent(slashCommandText(command)).run();
+    setSlashMenuOpen(false);
+    globalThis.setTimeout(() => { suppressSlashMenuRef.current = Math.max(0, suppressSlashMenuRef.current - 1); }, 0);
+  };
+
+  const handleSlashMenuKey = (event: KeyboardEvent) => {
+    /* 中文输入法组合确认的 Enter 不参与菜单交互，与发送路径保持一致。 */
+    if (event.isComposing || event.keyCode === 229) return false;
+    const menu = slashMenuRef.current;
+    if (!menu.open) return false;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      const next = menu.commands.length ? Math.min(menu.active + 1, menu.commands.length - 1) : 0;
+      slashMenuRef.current = { ...menu, active: next };
+      setSlashMenuActive(next);
+      return true;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      const next = Math.max(menu.active - 1, 0);
+      slashMenuRef.current = { ...menu, active: next };
+      setSlashMenuActive(next);
+      return true;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setSlashMenuOpen(false);
+      return true;
+    }
+    if (event.key === "Enter") {
+      const command = menu.commands[Math.min(menu.active, menu.commands.length - 1)];
+      /* 无匹配命令时放行 Enter，走正常发送路径（与 pi TUI 一致）。 */
+      if (!command) return false;
+      event.preventDefault();
+      insertSlashCommand(command);
+      return true;
+    }
+    return false;
+  };
+
+  const handleSlashInput = (editor: Editor) => {
+    if (suppressSlashMenuRef.current > 0) return;
+    const query = slashQueryFromEditor(editor);
+    setSlashMenuOpen(query !== null);
+    if (query !== null) {
+      setSlashMenuQuery(query);
+      setSlashMenuActive(0);
+    }
+  };
+
+  const closeSlashMenu = () => setSlashMenuOpen(false);
+
   const inputRef = useRef<PromptInputState>({ value, hasAttachments, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort });
-  inputRef.current = { value, hasAttachments, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort };
+  inputRef.current = { value, hasAttachments, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort, onSlashInput: handleSlashInput, handleSlashMenuKey, onSlashBlur: closeSlashMenu };
   const action = isRunning && !value.trim() && !hasAttachments && !attachmentsLoading ? "中止任务" : editingQueuedTurnId ? "保存队列任务" : isRunning ? "加入队列" : "发送";
 
   return (
@@ -110,10 +191,13 @@ export function PromptInput({
           event.stopPropagation();
           onAddFiles?.(files);
         }}
-        onSubmit={(event) => { event.preventDefault(); submitPrompt(inputRef.current); }} className={cn("overflow-hidden rounded-[var(--radius-composer)] border border-[var(--composer-border)] bg-[var(--composer-bg)] transition-[background-color,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:border-[var(--accent)] focus-within:bg-[var(--composer-bg-hover)]", className)}>
+        onSubmit={(event) => { event.preventDefault(); submitPrompt(inputRef.current); }} className={cn("rounded-[var(--radius-composer)] border border-[var(--composer-border)] bg-[var(--composer-bg)] transition-[background-color,border-color] duration-[var(--motion-fast)] ease-[var(--ease-out)] hover:bg-[var(--composer-bg-hover)] focus-within:border-[var(--accent)] focus-within:bg-[var(--composer-bg-hover)]", className)}>
       {hasAttachments && <div className="px-3 pt-3"><Attachments attachments={attachments} onRemove={onRemoveAttachment} /></div>}
       {attachmentsLoading && <p role="status" className="px-3 pt-3 text-[var(--font-size-11)] text-[var(--text-secondary)]">正在读取附件…</p>}
-      <PromptEditor value={value} placeholder={placeholder} action={action} inputRef={inputRef} />
+      <div className="relative">
+        {slashMenuOpen && <SlashCommandMenu commands={filteredSlashCommands} activeIndex={Math.min(slashMenuActive, Math.max(filteredSlashCommands.length - 1, 0))} onSelect={insertSlashCommand} onHover={setSlashMenuActive} />}
+        <PromptEditor value={value} placeholder={placeholder} action={action} inputRef={inputRef} editorRef={editorRef} />
+      </div>
       <div data-slot="prompt-toolbar" className="flex min-w-0 items-center justify-between gap-2 px-2 pb-2 pt-1">
         <div className="flex min-w-0 items-center gap-1">
           {footer}
@@ -151,11 +235,12 @@ export function PromptInput({
 }
 
 /* 正文增量和工具栏更新不重建编辑器配置，事件仍读取最新的提交与中止回调。 */
-const PromptEditor = memo(function PromptEditor({ value, placeholder, action, inputRef }: {
+const PromptEditor = memo(function PromptEditor({ value, placeholder, action, inputRef, editorRef }: {
   value: string;
   placeholder: string;
   action: string;
   inputRef: RefObject<PromptInputState>;
+  editorRef: RefObject<Editor | null>;
 }) {
   const editor = useEditor({
     extensions: [StarterKit.configure({ heading: false, blockquote: false, codeBlock: false, horizontalRule: false, bulletList: false, orderedList: false, listItem: false })],
@@ -170,14 +255,20 @@ const PromptEditor = memo(function PromptEditor({ value, placeholder, action, in
         role: "textbox",
       },
       handleKeyDown: (_view, event) => {
+        /* 斜杠菜单打开时方向键、Enter、Esc 用于菜单交互。 */
+        if (inputRef.current.handleSlashMenuKey?.(event)) return true;
         if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return false;
         event.preventDefault();
         submitPrompt(inputRef.current);
         return true;
       },
     },
-    onUpdate: ({ editor: nextEditor }) => inputRef.current.onChange(nextEditor.getText({ blockSeparator: "\n" })),
+    onUpdate: ({ editor: nextEditor }) => {
+      inputRef.current.onChange(nextEditor.getText({ blockSeparator: "\n" }));
+      inputRef.current.onSlashInput?.(nextEditor);
+    },
   });
+  editorRef.current = editor;
 
   useEffect(() => {
     if (!editor) return;
@@ -187,10 +278,18 @@ const PromptEditor = memo(function PromptEditor({ value, placeholder, action, in
 
   useEffect(() => {
     if (!editor) return;
+    /* 光标移动不触发 onUpdate，订阅 selectionUpdate 保证菜单跟随光标所在行。 */
+    const refreshSlashMenu = () => inputRef.current.onSlashInput?.(editor);
+    editor.on("selectionUpdate", refreshSlashMenu);
+    return () => { editor.off("selectionUpdate", refreshSlashMenu); };
+  }, [editor, inputRef]);
+
+  useEffect(() => {
+    if (!editor) return;
     editor.view.dom.setAttribute("aria-label", `${placeholder}，Enter ${action}，Shift + Enter 换行`);
   }, [action, editor, placeholder, value]);
 
-  return <div className="relative">
+  return <div className="relative" onBlurCapture={() => inputRef.current.onSlashBlur?.()}>
     {!value && <span data-slot="prompt-placeholder" className="pointer-events-none absolute left-3.5 top-3 z-10 text-[var(--font-size-13)] leading-5 text-[var(--text-disabled)]">{placeholder}</span>}
     <EditorContent editor={editor} className="prompt-editor" />
   </div>;
@@ -303,6 +402,15 @@ function ThinkingMenu({ thinkingLevel, thinkingLevels, runtimeAvailable, isRunni
       </DropdownMenuRadioGroup>
     </DropdownMenuContent>
   </DropdownMenu>;
+}
+
+/* 计算光标所在行是否处于斜杠命令输入状态，返回 / 后的查询词；否则返回 null。 */
+function slashQueryFromEditor(editor: Editor): string | null {
+  const { $from } = editor.state.selection;
+  const text = $from.parent.textContent ?? "";
+  const beforeCursor = text.slice(0, $from.parentOffset);
+  const match = /^\/(\S*)$/.exec(beforeCursor);
+  return match ? match[1] : null;
 }
 
 function documentFromText(value: string) {

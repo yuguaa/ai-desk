@@ -127,6 +127,7 @@ export default function WorkspacePage({ onOpenSettings }: { onOpenSettings: () =
             extensionStatuses={workspace.extensionStatuses}
             extensionWidgets={workspace.extensionWidgets}
             goal={workspace.conversationState.goal}
+            slashCommands={workspace.conversationState.slashCommands}
             onRespondToExtensionUi={workspace.respondToExtensionUi}
           />
         </main>
