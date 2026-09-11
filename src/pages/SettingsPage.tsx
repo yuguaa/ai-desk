@@ -256,7 +256,7 @@ function PiPackagesPanel() {
     </div>
 
     <div className="flex items-center gap-1.5">
-      <Input aria-label="插件来源" value={source} onChange={(event) => setSource(event.currentTarget.value)} placeholder="npm:pi-goal 或 git:github.com/user/repo" spellCheck={false} className="min-w-0 flex-1 font-mono text-[var(--font-size-11)]" />
+      <Input aria-label="插件来源" value={source} onChange={(event) => setSource(event.currentTarget.value)} placeholder="npm:some-plugin 或 git:github.com/user/repo" spellCheck={false} className="min-w-0 flex-1 font-mono text-[var(--font-size-11)]" />
       <Button type="button" size="sm" disabled={!source.trim() || busy} onClick={handleInstall} className="shrink-0">{installing ? <LoaderCircle size={13} className="animate-spin" /> : <Plus size={13} />}安装</Button>
     </div>
 

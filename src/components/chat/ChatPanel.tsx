@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { Check, MessageSquarePlus } from "@/components/ui/icons";
 import { Conversation } from "@/components/ai-elements/conversation";
 import { ConversationChangesBar } from "@/components/chat/ConversationChangesBar";
+import { GoalStatus } from "@/components/chat/GoalStatus";
 import { ExtensionUiPanel } from "@/components/extension/ExtensionUiPanel";
 import { getConversationTurnFingerprint, type ConversationTurnChanges } from "@/lib/conversation-changes";
 import { MessageCopyButton } from "@/components/chat/MessageCopyButton";
@@ -55,7 +56,7 @@ export function ChatPanel({ attachments = [], onAddFiles, onRemoveAttachment, at
   const currentTurnHasOutput = !isTimelineLoading && timeline.length > lastUserIndex + 1;
 
   return <div className="flex min-h-0 flex-1 flex-col bg-[var(--bg-workspace)]">
-    <ExtensionUiPanel request={activeExtensionRequest} notifications={extensionNotifications} statuses={extensionStatuses} widgets={extensionWidgets} goal={goal} onRespond={onRespondToExtensionUi} />
+    <ExtensionUiPanel request={activeExtensionRequest} notifications={extensionNotifications} statuses={extensionStatuses} widgets={extensionWidgets} onRespond={onRespondToExtensionUi} />
     <div className="relative isolate min-h-0 flex-1 overflow-hidden">
       {isTimelineLoading ? <div role="status" aria-label="加载会话中" className="flex h-full items-center justify-center gap-2 text-[var(--font-size-11-5)] text-[var(--text-tertiary)]"><Spinner role="presentation" aria-hidden="true" /><span>加载会话中…</span></div> : <Conversation key={conversationId} className="relative z-10 h-full" scrollToBottomTrigger={scrollToBottomTrigger}>
         <div className="w-full px-[var(--container-padding)] pb-[var(--container-padding-loose)] pt-[var(--container-padding)]">
@@ -85,7 +86,7 @@ export function ChatPanel({ attachments = [], onAddFiles, onRemoveAttachment, at
         </div>
       </Conversation>}
     </div>
-    <div data-slot="conversation-composer" className="shrink-0 px-[var(--container-padding)] pb-[var(--container-padding)] pt-[var(--container-padding-tight)]"><div className="conversation-column"><Suspense fallback={<div className="h-[116px] rounded-[var(--radius-composer)] bg-[var(--composer-bg)]" aria-busy="true" />}><PromptInput attachments={attachments} onAddFiles={onAddFiles} onRemoveAttachment={onRemoveAttachment} attachmentsLoading={attachmentsLoading} value={draft} onChange={onDraftChange} onSubmit={sendMessage} submitDisabled={submitDisabled} onAbort={onAbort} isRunning={isBusy} queuedTurns={queuedTurns} editingQueuedTurnId={editingQueuedTurnId} models={models} selectedModel={selectedModel} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} contextUsage={contextUsage} runtimeAvailable={runtimeAvailable} onModelChange={onModelChange} onThinkingChange={onThinkingChange} onReorderQueuedTurn={onReorderQueuedTurn} onRemoveQueuedTurn={onRemoveQueuedTurn} onSteerQueuedTurn={onSteerQueuedTurn} onEditQueuedTurn={onEditQueuedTurn} /></Suspense></div></div>
+    <div data-slot="conversation-composer" className="shrink-0 px-[var(--container-padding)] pb-[var(--container-padding)] pt-[var(--container-padding-tight)]"><div className="conversation-column"><GoalStatus goal={goal} /><Suspense fallback={<div className="h-[116px] rounded-[var(--radius-composer)] bg-[var(--composer-bg)]" aria-busy="true" />}><PromptInput attachments={attachments} onAddFiles={onAddFiles} onRemoveAttachment={onRemoveAttachment} attachmentsLoading={attachmentsLoading} value={draft} onChange={onDraftChange} onSubmit={sendMessage} submitDisabled={submitDisabled} onAbort={onAbort} isRunning={isBusy} queuedTurns={queuedTurns} editingQueuedTurnId={editingQueuedTurnId} models={models} selectedModel={selectedModel} thinkingLevel={thinkingLevel} thinkingLevels={thinkingLevels} contextUsage={contextUsage} runtimeAvailable={runtimeAvailable} onModelChange={onModelChange} onThinkingChange={onThinkingChange} onReorderQueuedTurn={onReorderQueuedTurn} onRemoveQueuedTurn={onRemoveQueuedTurn} onSteerQueuedTurn={onSteerQueuedTurn} onEditQueuedTurn={onEditQueuedTurn} /></Suspense></div></div>
   </div>;
 }
 

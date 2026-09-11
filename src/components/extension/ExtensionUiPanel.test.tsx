@@ -43,7 +43,7 @@ describe("ExtensionUiPanel", () => {
     expect(onRespond).toHaveBeenCalledWith({ type: "extension_ui_response", id: "confirm-1", confirmed: true });
   });
 
-  it("渲染目标横幅并隐藏 pi-goal 状态徽章", async () => {
+  it("隐藏 pi-goal 状态徽章，目标改由输入框上方队列区域展示", async () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -57,13 +57,10 @@ describe("ExtensionUiPanel", () => {
           { id: "status-other", statusKey: "other", statusText: "等待确认" },
         ]}
         widgets={[]}
-        goal={{ objective: "修复滚动问题", status: "active" }}
         onRespond={vi.fn()}
       />);
     });
 
-    expect(container.textContent).toContain("修复滚动问题");
-    expect(container.textContent).toContain("进行中");
     expect(container.textContent).not.toContain("Pursuing goal");
     expect(container.textContent).toContain("等待确认");
   });

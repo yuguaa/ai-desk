@@ -18,7 +18,7 @@ const workspace = vi.hoisted(() => ({
   draft: "",
   attachmentDraft: { attachments: [], pending: 0, error: null, addFiles: vi.fn(), remove: vi.fn() },
   queuedTurns: [],
-  conversationState: { availableModels: [], model: "", thinkingLevel: "", availableThinkingLevels: [] },
+  conversationState: { availableModels: [], model: "", thinkingLevel: "", availableThinkingLevels: [], goal: null as null | { objective: string; status: string } },
   runtimeIsTauri: false,
   activeExtensionRequest: null,
   extensionNotifications: [],
@@ -87,6 +87,7 @@ import WorkspacePage from "@/pages/WorkspacePage";
 afterEach(() => {
   workspace.activeProject = { id: "/demo", name: "demo", path: "/demo" };
   workspace.draft = "";
+  workspace.conversationState.goal = null;
   vi.clearAllMocks();
 });
 
@@ -101,6 +102,15 @@ describe("WorkspacePage panel layout", () => {
       canSend: Boolean(projectId),
       conversationId: "",
       draft: "首次任务",
+    }));
+  });
+
+  it("把目标状态传给 ChatPanel 展示在输入框上方队列区域", () => {
+    workspace.conversationState.goal = { objective: "修复滚动", status: "active" };
+    renderToStaticMarkup(<WorkspacePage onOpenSettings={vi.fn()} />);
+
+    expect(vi.mocked(ChatPanel).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      goal: { objective: "修复滚动", status: "active" },
     }));
   });
 

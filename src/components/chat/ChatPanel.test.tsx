@@ -397,4 +397,27 @@ describe("ChatPanel", () => {
     expect(nextViewport).not.toBe(previousViewport);
     expect(nextViewport?.scrollTop).toBe(0);
   });
+
+  it("目标模式状态展示在输入框上方的队列区域，而不是内容区顶部", async () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      renderChatPanel({ goal: { objective: "修复滚动问题", status: "active" } });
+      await Promise.resolve();
+    });
+
+    const composer = container.querySelector('[data-slot="conversation-composer"]');
+    expect(composer?.textContent).toContain("修复滚动问题");
+    expect(composer?.textContent).toContain("进行中");
+    /* 目标状态位于队列区域：状态条渲染在输入框组件之前，即队列上方。 */
+    const statusNode = composer?.querySelector('[data-slot="goal-status"]');
+    const inputNode = composer?.querySelector('[data-slot="prompt-input"]');
+    expect(statusNode).not.toBeNull();
+    expect(inputNode).not.toBeNull();
+    expect(statusNode && inputNode && statusNode.compareDocumentPosition(inputNode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    /* 内容区顶部不再渲染目标横幅。 */
+    expect(container.querySelector('[aria-label="扩展交互面板"]')).toBeNull();
+  });
 });

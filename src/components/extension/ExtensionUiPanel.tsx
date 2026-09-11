@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Bell, Check, CircleDot, Info, LayoutList, LoaderCircle, ShieldCheck, TriangleAlert } from "@/components/ui/icons";
+import { Bell, Info, LayoutList, ShieldCheck, TriangleAlert } from "@/components/ui/icons";
 import { Textarea } from "@/components/ui/textarea";
-import type { PiExtensionResponse, PiGoalState } from "@/lib/pi-runtime";
+import type { PiExtensionResponse } from "@/lib/pi-runtime";
 
 type ExtensionUiRequest = {
   id: string;
@@ -36,7 +36,7 @@ type ExtensionWidget = {
   lines: string[];
 };
 
-export function ExtensionUiPanel({ request, notifications, statuses, widgets, goal = null, onRespond }: { request: unknown; notifications: unknown[]; statuses: unknown[]; widgets: unknown[]; goal?: PiGoalState | null; onRespond: (response: PiExtensionResponse) => void }) {
+export function ExtensionUiPanel({ request, notifications, statuses, widgets, onRespond }: { request: unknown; notifications: unknown[]; statuses: unknown[]; widgets: unknown[]; onRespond: (response: PiExtensionResponse) => void }) {
   const dialogRequest = useMemo(() => normalizeRequest(request), [request]);
   const normalizedNotifications = useMemo(() => notifications.map(normalizeNotification).filter((item): item is ExtensionNotification => item !== null), [notifications]);
   const normalizedStatuses = useMemo(() => statuses.map(normalizeStatus).filter((item): item is ExtensionStatus => item !== null && item.label !== "pi-goal"), [statuses]);
@@ -57,17 +57,10 @@ export function ExtensionUiPanel({ request, notifications, statuses, widgets, go
     return () => window.clearTimeout(timeoutId);
   }, [dialogRequest?.id, dialogRequest?.timeout]);
 
-  if (!dialogRequest && !goal && !normalizedNotifications.length && !normalizedStatuses.length && !normalizedWidgets.length) return null;
+  if (!dialogRequest && !normalizedNotifications.length && !normalizedStatuses.length && !normalizedWidgets.length) return null;
 
   return <section className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]" aria-label="扩展交互面板">
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-2 px-[var(--container-padding-loose)] py-[var(--container-padding-tight)]">
-      {goal && <div className="flex items-center justify-center">
-        <div className="flex max-w-full items-center gap-2 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface-raised)] px-3.5 py-1.5 shadow-[var(--shadow-sm)]">
-          {goalStatusPresentation(goal.status).icon}
-          <span className="min-w-0 truncate text-[var(--font-size-11)] text-[var(--text-primary)]" title={goal.objective}>{goal.objective}</span>
-          <span className="shrink-0 text-[var(--font-size-10)] text-[var(--text-tertiary)]">{goalStatusPresentation(goal.status).label}</span>
-        </div>
-      </div>}
       {normalizedStatuses.length > 0 && <div className="flex flex-wrap items-center gap-1.5">
         {normalizedStatuses.map((status) => <Badge key={status.id} variant="outline" className="gap-1.5"><LayoutList className="size-3 text-[var(--accent)]" /><span className="font-medium text-[var(--text-primary)]">{status.label}</span><span className="text-[var(--text-secondary)]">{status.text}</span></Badge>)}
       </div>}
@@ -180,11 +173,4 @@ function normalizeWidget(value: unknown): ExtensionWidget | null {
 
 function textValue(value: unknown) {
   return typeof value === "string" ? value : "";
-}
-
-function goalStatusPresentation(status: PiGoalState["status"]) {
-  if (status === "active") return { icon: <LoaderCircle size={13} className="animate-spin text-[var(--accent)]" />, label: "进行中" };
-  if (status === "paused") return { icon: <CircleDot size={13} className="text-[var(--text-tertiary)]" />, label: "已暂停" };
-  if (status === "complete") return { icon: <Check size={13} className="text-[var(--success)]" />, label: "已完成" };
-  return { icon: <TriangleAlert size={13} className="text-[var(--warning)]" />, label: "已达预算" };
 }

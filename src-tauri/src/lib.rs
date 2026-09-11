@@ -2900,7 +2900,7 @@ mod tests {
     fn parse_pi_packages_should_read_string_and_object_forms() {
         let settings = serde_json::json!({
             "packages": [
-                "npm:pi-goal",
+                "npm:some-plugin",
                 { "source": "git:github.com/user/repo", "skills": ["review"] },
                 "/abs/path/plugin"
             ]
@@ -2908,7 +2908,7 @@ mod tests {
         assert_eq!(
             parse_pi_packages(&settings),
             vec![
-                "npm:pi-goal".to_owned(),
+                "npm:some-plugin".to_owned(),
                 "git:github.com/user/repo".to_owned(),
                 "/abs/path/plugin".to_owned(),
             ]

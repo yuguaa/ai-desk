@@ -1,0 +1,20 @@
+import { Check, CircleDot, LoaderCircle, TriangleAlert } from "@/components/ui/icons";
+import type { PiGoalState } from "@/lib/pi-runtime";
+
+/* 目标模式状态条：挂在输入框上方的队列区域，随目标状态常驻展示。 */
+export function GoalStatus({ goal }: { goal: PiGoalState | null }) {
+  if (!goal) return null;
+  const { icon, label } = goalStatusPresentation(goal.status);
+  return <div data-slot="goal-status" role="status" aria-label={`目标模式：${goal.objective}`} className="mb-2 flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5">
+    <span className="flex shrink-0 items-center gap-1.5 text-[var(--font-size-10-5)] font-medium text-[var(--text-tertiary)]">{icon}<span>目标模式</span></span>
+    <span className="min-w-0 flex-1 truncate text-[var(--font-size-11-5)] text-[var(--text-primary)]" title={goal.objective}>{goal.objective}</span>
+    <span className="shrink-0 text-[var(--font-size-10)] text-[var(--text-tertiary)]">{label}</span>
+  </div>;
+}
+
+function goalStatusPresentation(status: PiGoalState["status"]) {
+  if (status === "active") return { icon: <LoaderCircle size={12} className="animate-spin text-[var(--accent)]" />, label: "进行中" };
+  if (status === "paused") return { icon: <CircleDot size={12} className="text-[var(--text-tertiary)]" />, label: "已暂停" };
+  if (status === "complete") return { icon: <Check size={12} className="text-[var(--success)]" />, label: "已完成" };
+  return { icon: <TriangleAlert size={12} className="text-[var(--warning)]" />, label: "已达预算" };
+}
