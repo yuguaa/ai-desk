@@ -237,6 +237,20 @@ export function useWorkspace() {
 
   const refreshContextUsage = (conversationId: string) => sendRpcCommand(conversationId, { type: "get_session_stats" }).then(() => undefined);
 
+  /* 斜杠菜单打开时补拉动态命令：进程初始化窗口期内首次拉取可能为空。 */
+  const refreshSlashCommands = () => {
+    const conversation = activeConversation;
+    if (!conversation || activeConversationState.slashCommands.length) return;
+    /* 进程已就绪时直接请求，避免重复整轮状态同步。 */
+    if (processRef.current.has(conversation.id)) {
+      sendRpcCommand(conversation.id, { type: "get_commands" }).catch(() => undefined);
+      return;
+    }
+    ensureProcess(conversation)
+      .then(() => sendRpcCommand(conversation.id, { type: "get_commands" }))
+      .catch(() => undefined);
+  };
+
   const patchProcess = (conversationId: string, patch: Partial<PiProcessStatus>) => {
     const current = processRef.current.get(conversationId);
     if (!current) return;
@@ -1448,6 +1462,7 @@ export function useWorkspace() {
     abortConversation,
     setConversationModel,
     setConversationThinkingLevel,
+    refreshSlashCommands,
     setActiveProjectTrusted: updateActiveProjectTrusted,
     respondToExtensionUi,
   };

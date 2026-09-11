@@ -616,6 +616,43 @@ describe("useWorkspace", () => {
   });
 
   describe("本地斜杠命令", () => {
+    it("get_commands 响应写入动态斜杠命令列表", async () => {
+      await mountWorkspace();
+
+      const command = findLastCommand("get_commands");
+      emitEvent(command.conversationId, {
+        type: "response",
+        id: command.command.id,
+        command: "get_commands",
+        success: true,
+        data: { commands: [{ name: "goal", description: "长跑目标", source: "extension" }] },
+      });
+
+      expect(workspace!.conversationState.slashCommands).toEqual([{ name: "goal", description: "长跑目标", source: "extension" }]);
+    });
+
+    it("菜单打开时动态命令为空则补拉，已有命令不重复请求", async () => {
+      runtime.processList = [{ conversationId: "c1", pid: 101, running: true, busy: false }];
+      await mountWorkspace();
+      act(() => workspace!.selectConversation(workspace!.conversations[0]));
+      await act(async () => { await Promise.resolve(); });
+
+      const countGetCommands = () => (runtime.sendPiCommand.mock.calls as unknown as Array<[string, { type: string }]>).filter(([, command]) => command.type === "get_commands").length;
+      const countBefore = countGetCommands();
+      act(() => workspace!.refreshSlashCommands());
+      await act(async () => { await Promise.resolve(); });
+      const countAfterRefresh = countGetCommands();
+      expect(countAfterRefresh).toBe(countBefore + 1);
+
+      /* 已有命令后不再补拉 */
+      const command = findLastCommand("get_commands");
+      emitEvent(command.conversationId, { type: "response", id: command.command.id, command: "get_commands", success: true, data: { commands: [{ name: "goal", description: "长跑目标", source: "extension" }] } });
+      act(() => workspace!.refreshSlashCommands());
+      await act(async () => { await Promise.resolve(); });
+      const countAfterFilled = countGetCommands();
+      expect(countAfterFilled).toBe(countAfterRefresh);
+    });
+
     it("/new 新建会话并清空草稿，不发送给 pi", async () => {
       bridge.projects[0].conversations = [];
       await mountWorkspace();

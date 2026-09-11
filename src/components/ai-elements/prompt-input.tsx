@@ -33,6 +33,8 @@ type PromptInputState = {
   handleSlashMenuKey?: (event: KeyboardEvent) => boolean;
   /* 编辑器失焦时关闭斜杠菜单 */
   onSlashBlur?: () => void;
+  /* 斜杠菜单打开时回调（用于补拉 pi 动态命令） */
+  onSlashMenuOpen?: () => void;
 };
 
 export function PromptInput({
@@ -54,6 +56,7 @@ export function PromptInput({
   queuedTurns = [],
   editingQueuedTurnId,
   slashCommands = [],
+  onSlashMenuOpen,
   onModelChange,
   onThinkingChange,
   onReorderQueuedTurn,
@@ -87,6 +90,7 @@ export function PromptInput({
   queuedTurns?: QueuedConversationTurn[];
   editingQueuedTurnId?: string | null;
   slashCommands?: SlashCommand[];
+  onSlashMenuOpen?: () => void;
   onModelChange?: (modelKey: string) => void;
   onThinkingChange?: (level: string) => void;
   onReorderQueuedTurn?: (sourceId: string, targetId: string) => void;
@@ -158,7 +162,11 @@ export function PromptInput({
   const handleSlashInput = (editor: Editor) => {
     if (suppressSlashMenuRef.current > 0) return;
     const query = slashQueryFromEditor(editor);
+    const opening = query !== null && !slashMenuRef.current.open;
+    /* 同一事务内 onUpdate 与 selectionUpdate 连续触发，ref 同步更新避免重复回调。 */
+    slashMenuRef.current = { ...slashMenuRef.current, open: query !== null };
     setSlashMenuOpen(query !== null);
+    if (opening) onSlashMenuOpenRef.current?.();
     if (query !== null) {
       setSlashMenuQuery(query);
       setSlashMenuActive(0);
@@ -166,6 +174,8 @@ export function PromptInput({
   };
 
   const closeSlashMenu = () => setSlashMenuOpen(false);
+  const onSlashMenuOpenRef = useRef(onSlashMenuOpen);
+  onSlashMenuOpenRef.current = onSlashMenuOpen;
 
   const inputRef = useRef<PromptInputState>({ value, hasAttachments, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort });
   inputRef.current = { value, hasAttachments, attachmentsLoading, submitDisabled, isRunning, onChange, onSubmit, onAbort, onSlashInput: handleSlashInput, handleSlashMenuKey, onSlashBlur: closeSlashMenu };

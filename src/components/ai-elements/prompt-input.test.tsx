@@ -579,5 +579,16 @@ describe("PromptInput", () => {
       });
       expect(container!.querySelector('[data-slot="slash-command-menu"]')).toBeNull();
     });
+
+    it("菜单打开时回调 onSlashMenuOpen 用于补拉 pi 动态命令", async () => {
+      const onSlashMenuOpen = vi.fn();
+      await renderInput({ onSlashMenuOpen });
+      await pasteText("/");
+      expect(onSlashMenuOpen).toHaveBeenCalledOnce();
+
+      /* 菜单已打开，继续输入查询词不重复回调 */
+      await pasteText("n");
+      expect(onSlashMenuOpen).toHaveBeenCalledOnce();
+    });
   });
 });

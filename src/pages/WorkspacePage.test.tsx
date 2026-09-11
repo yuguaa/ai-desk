@@ -41,6 +41,7 @@ const workspace = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   abortConversation: vi.fn(),
   respondToExtensionUi: vi.fn(),
+  refreshSlashCommands: vi.fn(),
 }));
 
 vi.mock("@/components/ui/resizable", () => ({
@@ -121,6 +122,7 @@ describe("WorkspacePage panel layout", () => {
 
     expect(vi.mocked(ChatPanel).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       slashCommands: [{ name: "goal", description: "长跑目标", source: "extension" }],
+      onSlashMenuOpen: workspace.refreshSlashCommands,
     }));
   });
 
