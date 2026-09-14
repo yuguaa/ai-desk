@@ -1595,8 +1595,17 @@ fn validate_pi_command(command: &Value) -> Result<(), String> {
         | "get_available_models"
         | "get_available_thinking_levels"
         | "get_session_stats"
+        | "get_commands"
+        | "get_last_assistant_text"
         | "abort" => Ok(()),
         "prompt" | "steer" => validate_string_field(object, "message", 1_048_576),
+        "compact" => {
+            /* 可选的自定义压缩指令 */
+            if let Some(instructions) = object.get("customInstructions") {
+                validate_string_field_value(instructions, "customInstructions", 1_048_576)?;
+            }
+            Ok(())
+        }
         "set_model" => {
             validate_string_field(object, "provider", 256)?;
             validate_string_field(object, "modelId", 256)
@@ -1637,6 +1646,20 @@ fn validate_string_field(
         .and_then(Value::as_str)
         .unwrap_or_default();
     if value.is_empty() || value.len() > max_length {
+        return Err(format!("Pi RPC command 字段 {field} 长度无效"));
+    }
+    Ok(())
+}
+
+fn validate_string_field_value(
+    value: &Value,
+    field: &str,
+    max_length: usize,
+) -> Result<(), String> {
+    let Some(text) = value.as_str() else {
+        return Err(format!("Pi RPC command 字段 {field} 必须是字符串"));
+    };
+    if text.is_empty() || text.len() > max_length {
         return Err(format!("Pi RPC command 字段 {field} 长度无效"));
     }
     Ok(())
@@ -3246,6 +3269,37 @@ mod tests {
         );
         assert_eq!(detect_supported_image_mime_type(&bmp), Some("image/bmp"));
         assert_eq!(detect_supported_image_mime_type(b"<svg></svg>"), None);
+    }
+
+    #[test]
+    fn validate_pi_command_should_accept_slash_command_rpc_requests() {
+        assert!(validate_pi_command(&serde_json::json!({
+            "type": "get_commands",
+            "id": "commands-1"
+        }))
+        .is_ok());
+        assert!(validate_pi_command(&serde_json::json!({
+            "type": "get_last_assistant_text",
+            "id": "last-text-1"
+        }))
+        .is_ok());
+        assert!(validate_pi_command(&serde_json::json!({
+            "type": "compact",
+            "id": "compact-1"
+        }))
+        .is_ok());
+        assert!(validate_pi_command(&serde_json::json!({
+            "type": "compact",
+            "id": "compact-2",
+            "customInstructions": "保留架构决策"
+        }))
+        .is_ok());
+        assert!(validate_pi_command(&serde_json::json!({
+            "type": "compact",
+            "id": "compact-3",
+            "customInstructions": 42
+        }))
+        .is_err());
     }
 
     #[test]
